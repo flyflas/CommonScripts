@@ -60,7 +60,7 @@ install_go() {
 install_naive() {
     info "正在安装 naive, 请稍后......"
     # 安装navie
-    go get -u github.com/caddyserver/xcaddy/cmd/xcaddy && \
+    go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest && \
     ~/go/bin/xcaddy build --with github.com/caddyserver/forwardproxy@caddy2=github.com/klzgrad/forwardproxy@naive && \
     setcap cap_net_bind_service=+ep ./caddy
 
