@@ -117,7 +117,7 @@ add_daemon() {
     caddy
 
     # set daemon
-    cat >> /etc/systemd/system/ << EOF
+    cat >> /etc/systemd/system/caddy.service << EOF
 [Unit]
 Description=Caddy
 Documentation=https://caddyserver.com/docs/
