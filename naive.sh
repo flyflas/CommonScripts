@@ -68,7 +68,7 @@ install_naive() {
 
     # 设置 Caddy 配置文件
     [[ ! -d ${CADDY_CONFIG_DIR} ]] && mkdir -p $CADDY_CONFIG_DIR
-    [[ -e ${CADDY_CONFIG_DIR}/Caddyfile ]] && rm -rf ${CADDY_CONFIG_DIR}/Caddyfile && \
+    [[ -e ${CADDY_CONFIG_DIR}/Caddyfile ]] && rm -rf ${CADDY_CONFIG_DIR}/Caddyfile 
     cat >> ${CADDY_CONFIG_DIR}/Caddyfile << EOF
 :$PORT, $DOMAIN {
 	tls $EMAIL
