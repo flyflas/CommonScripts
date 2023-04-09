@@ -4,7 +4,7 @@ unset CADDY_CONFIG_DIR PORT DOMAIN EMAIL PASSWD USERNAME END_COLOR RED GREEN YEL
 
 CADDY_CONFIG_DIR="/etc/caddy"
 EMAIL_REG="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-DOMAIN_REG="^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$"
+DOMAIN_REG="^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
 
 END_COLOR="\033[0m"
 RED="\033[31m"
