@@ -8,7 +8,7 @@
 # @version 2.0
 #-------------------------------------------------------
 
-set -Eeuo pipefail
+set -Eeo pipefail
 
 echo -e "[$(date +"%F %T")] 正在备份.ssh"
 
@@ -41,7 +41,7 @@ for i in "${TARGET_FILE_SET[@]}"; do
 
     if [[ "${TARGET_FILE_DICT["$i"]}" != "${ORIGIN_FILE_DICT["$i"]}" ]]; then
         ORIGIN_FILE_TIME="stat -r "${ORIGIN_DIR}/$i" | awk '{print $10}'"
-        TARGET_FILE_TIME="stat -r "${TARGET_DIR}/$i" | awk '{print $10}}'"
+        TARGET_FILE_TIME="stat -r "${TARGET_DIR}/$i" | awk '{print $10}'"
 
         if [[ ${ORIGIN_FILE_TIME} -gt ${TARGET_FILE_TIME} ]]; then
             # .ssh 文件夹中的文件是最新修改的。
