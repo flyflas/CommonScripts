@@ -55,11 +55,6 @@ configure_bash() {
     } >>"$HOME/.bashrc"
 }
 
-install_baota() {
-    # 安装宝塔开心板 7.7
-    apt-get update && apt-get install -y curl wget git
-    curl -sSO https://raw.githubusercontent.com/zhucaidan/btpanel-v7.7.0/main/install/install_panel.sh && bash install_panel.sh <<<y
-}
 
 install_baota() {
     echo ""
@@ -125,6 +120,8 @@ config_baota() {
     fi
 
     main_html=$(mktemp)
+    trap 'rm -rf "${main_html}"' RETURN
+
     # 获取 csrf token
     curl -o "$main_html" -b "$cookie_file" 'http://192.168.230.2:8888/' \
         -H 'DNT: 1' \
@@ -170,21 +167,83 @@ config_baota() {
 }
 
 install_zsh() {
+    remind "开始安装zsh"
+    
+    info "正在安装zsh"
     # install zsh
     apt-get update &&
         apt-get install -y zsh &&
         sh -c "echo $(which zsh) >> /etc/shells" &&
         chsh -s "$(which zsh)"
 
+    info "正在安装on-my-zsh"
     # install oh-my-zsh
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)" <<<n
 
+    info "正在安装powerlevel10k"
     # install powerlevel10k
     apt install git &&
         git clone https://github.com/romkatv/powerlevel10k.git ~/.oh-my-zsh/custom/themes/powerlevel10k &&
         grep -q '^ZSH_THEME=' ~/.zshrc && sed -i 's/^ZSH_THEME=.*/ZSH_THEME="powerlevel10k\/powerlevel10k"/' ~/.zshrc
 
     info "重启终端生效......"
+}
+
+install_docker() {
+    remind "开始安装docker"
+    info "正在安装docker"
+    # install docker
+    curl -fsSL https://get.docker.com -o get-docker.sh &&
+        sh get-docker.sh
+
+    info "正在安装docker-compose"
+    # install docker-compose
+    curl -SL https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose &&
+        chmod +x /usr/local/bin/docker-compose
+        
+    info "docker-compose安装完成"
+}
+
+install_neovim() {
+    remind "开始安装neovim"
+    
+    info "正在安装neovim"
+    # 安装neovim 并且配置自动切换输入法
+    apt install -y neovim
+    
+    info "正在配置neovim"
+    # 配置自动切换输入法
+    [[ -d "$HOME/.config/nvim" ]] || mkdir -p "$HOME/.config/nvim"
+    cat >> init.lua << EOF
+
+-- 记录当前输入法
+Current_input_method = vim.fn.system("/usr/local/bin/macism")
+
+-- 切换到英文输入法
+function Switch_to_English_input_method()
+    Current_input_method = vim.fn.system("/usr/local/bin/macism")
+    if Current_input_method ~= "com.apple.keylayout.ABC\n" then
+        vim.fn.system("/usr/local/bin/macism com.apple.keylayout.ABC")
+    end
+end
+
+-- 设置输入法
+function Set_input_method()
+    if Current_input_method ~= "com.apple.keylayout.ABC\n" then
+        vim.fn.system("/usr/local/bin/macism " .. string.gsub(Current_input_method, "\n", ""))
+    end
+end
+
+-- 进入 normal 模式时切换为英文输入法
+vim.cmd([[
+augroup input_method
+  autocmd!
+  autocmd InsertEnter * :lua Set_input_method()
+  autocmd InsertLeave * :lua Switch_to_English_input_method()
+augroup END
+]])
+EOF
+
 }
 
 apt update
