@@ -6,6 +6,7 @@
 # Purpose:    The purpose of this script is to quickly init linux setting.
 #             Thereby avoiding cumbersome manual settings.
 
+shopt -s expand_aliases
 alias echo="echo -e"
 
 set -Eeuxo pipefail
