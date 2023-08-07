@@ -19,47 +19,78 @@ YELLOW="\033[33m"
 BLUE="\033[34m"
 
 error() {
+    echo ""
     echo "${RED}$*${END_COLOR}"
+    echo ""
 }
 
 info() {
+    echo ""
     echo "${GREEN}$*${END_COLOR}"
+    echo ""
 }
 
 remind() {
+    echo ""
     echo "${BLUE}$*${END_COLOR}"
+    echo ""
 }
 
 warning() {
+    echo ""
     echo "${YELLOW}$*${END_COLOR}"
+    echo ""
 }
 
 install_btop() {
-    apt install coreutils sed git build-essential gcc-11 g++-11 ||
-        apt install coreutils sed git build-essential gcc g++
+    remind "开始安装btop"
 
+    btop --version && warning "btop 已经安装，跳过..." && return
+
+    apt install -y coreutils sed git build-essential gcc-11 g++-11 ||
+        apt install -y coreutils sed git build-essential gcc g++
+
+    info "正在编译btop源码，这可能需要一段时间......"
     cd "$HOME" &&
         git clone https://github.com/aristocratos/btop.git &&
         cd btop &&
         make &&
         make install
+
+    info "btop安装完成"
 }
 
-configure_bash() {
+configure_shell() {
+    remind "正在配置终端"
+
+    # 判断终端的类型
+    config_file=""
+    if echo "$SHELL" | grep -m 1 bash; then
+        config_file=".bashrc"
+        info "当前终端为 bash"
+    elif echo "$SHELL" | grep -m 1 zsh; then
+        info "当前终端为 zsh"
+        config_file=".zshrc"
+    else
+        error "不支持的Shell !!!"
+        return
+    fi
     {
         echo "export HISTTIMEFORMAT='%F %T  '"
         echo "export HISTSIZE=10000"
         echo "export HISTIGNORE='pwd:ls:exit'"
         echo "alias ll=\"ls -lh\""
         echo "alias la=\"ls -lha\""
-    } >>"$HOME/.bashrc"
+        echo "alias vim=\"nvim\""
+    } >>"$HOME/${config_file}"
+
+    info "终端配置完成，请重新登录终端"
 }
 
-
 install_baota() {
-    echo ""
     remind "开始安装宝塔面板......"
-    echo ""
+
+    bt --version && warning "宝塔面板已经存在，跳过..." && return
 
     # 安装宝塔开心板 7.7
     apt-get update && apt-get install -y curl wget git
@@ -79,6 +110,8 @@ install_baota() {
 
 config_baota() {
     remind "正在配置宝塔面板......"
+
+    ! [[ -e INSTALL_LOG ]] && return
 
     local cookie_file plugins username password url username_md5 password_md5 password_md5_tmp main_html login_result result main_html http_token cookie_token
 
@@ -168,7 +201,9 @@ config_baota() {
 
 install_zsh() {
     remind "开始安装zsh"
-    
+
+    echo "$SHELL" | grep -m 1 && warning "zsh已经安装，跳过..." && return
+
     info "正在安装zsh"
     # install zsh
     apt-get update &&
@@ -191,30 +226,37 @@ install_zsh() {
 
 install_docker() {
     remind "开始安装docker"
+
+    docker --version && warning "docker 已经安装，跳过..." && return
+
+    apt install -y curl wget >>/dev/null
+
     info "正在安装docker"
     # install docker
     curl -fsSL https://get.docker.com -o get-docker.sh &&
-        sh get-docker.sh
+        sh get-docker.sh || error "docker 安装失败"
 
     info "正在安装docker-compose"
     # install docker-compose
     curl -SL https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose &&
-        chmod +x /usr/local/bin/docker-compose
-        
-    info "docker-compose安装完成"
+        chmod +x /usr/local/bin/docker-compose || error "docker-compose 安装失败"
+
+    info "docker安装完成"
 }
 
 install_neovim() {
     remind "开始安装neovim"
-    
+
+    neovim --version && warning "neovim 已经安装，跳过..." && return
+
     info "正在安装neovim"
     # 安装neovim 并且配置自动切换输入法
     apt install -y neovim
-    
+
     info "正在配置neovim"
     # 配置自动切换输入法
     [[ -d "$HOME/.config/nvim" ]] || mkdir -p "$HOME/.config/nvim"
-    cat >> init.lua << EOF
+    cat >> init.lua <<EOF
 
 -- 记录当前输入法
 Current_input_method = vim.fn.system("/usr/local/bin/macism")
@@ -246,4 +288,260 @@ EOF
 
 }
 
-apt update
+help() {
+    echo "用法： ./init.sh [-flags]"
+    echo ""
+    echo "Flags: "
+    echo "          -a : 安装全部"
+    echo "          -b : 安装除了baota面板的其他组件"
+    echo "          --btop : 安装btop"
+    echo "          --baota : 安装baota"
+    echo "          --bash : 配置bash"
+    echo "          --docker: 安装docker"
+    echo "          --neovim : 安装neovim"
+    echo "          --zsh : 安装zsh"
+}
+
+main() {
+    options=$(getopt -o abh --long btop,baota,config,docker,neovim,zsh,help -n 'init.sh' -- "$@")
+    eval set -- "$options"
+
+    apt update
+
+    while true; do
+        case "$1" in
+        -a)
+            install_btop
+            install_baota
+            config_baota
+            install_docker
+            install_neovim
+            install_zsh
+            configure_shell
+
+            echo ""
+            echo "*****************************************************"
+            echo "*                  install status                   *"
+            echo "*****************************************************"
+            echo "*                                                   *"
+
+            if btop --version &>>/dev/null; then
+                printf "*          btop... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          btop... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if bt --version &>>/dev/null; then
+                printf "*          baota... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          baota... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if docker --version &>>/dev/null; then
+                printf "*          docker... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          docker... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if docker-compose --version &>>/dev/null; then
+                printf "*          docker-compose... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          docker-compose... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if nvim --version &>>/dev/null; then
+                printf "*          neovim... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          neovim... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if zsh --version &>>/dev/null; then
+                printf "*          zsh... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          zsh... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                                   *"
+            echo "*****************************************************"
+            echo ""
+
+            shift
+            ;;
+        -b)
+            install_btop
+            install_docker
+            install_neovim
+            install_zsh
+            configure_shell
+            
+            echo ""
+            echo "*****************************************************"
+            echo "*                  install status                   *"
+            echo "*****************************************************"
+            echo "*                                                   *"
+
+            if btop --version &>>/dev/null; then
+                printf "*          btop... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          btop... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if docker --version &>>/dev/null; then
+                printf "*          docker... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          docker... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if docker-compose --version &>>/dev/null; then
+                printf "*          docker-compose... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          docker-compose... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if nvim --version &>>/dev/null; then
+                printf "*          neovim... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          neovim... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if zsh --version &>>/dev/null; then
+                printf "*          zsh... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          zsh... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                                   *"
+            echo "*****************************************************"
+            echo ""
+
+            shift
+            ;;
+        --btop)
+            install_btop
+
+            echo ""
+            echo "*********************************************"
+            echo "*              install status               *"
+            echo "*********************************************"
+            echo "*                                           *"
+
+            if btop --version &>>/dev/null; then
+                printf "*              btop... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*              btop... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                           *"
+            echo "*********************************************"
+            echo ""
+
+            shift
+            ;;
+        --baota)
+            install_baota
+            config_baota
+
+            echo ""
+            echo "*********************************************"
+            echo "*              install status               *"
+            echo "*********************************************"
+            echo "*                                           *"
+
+            if bt --version &>>/dev/null; then
+                printf "*          宝塔面板... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*          宝塔面板... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                           *"
+            echo "*********************************************"
+            echo ""
+
+            shift
+            ;;
+        --config)
+            configure_shell
+            shift
+            ;;
+        --docker)
+            install_docker
+
+            echo ""
+            echo "*********************************************"
+            echo "*              install status               *"
+            echo "*********************************************"
+            echo "*                                           *"
+
+            if docker --version &>>/dev/null; then
+                printf "*         docker... \t\t %b%s%b         *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*         docker... \t\t %b%s%b       *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            if docker-compose --version &>>/dev/null; then
+                printf "*         docker-compose... \t %b%s%b         *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*         docker-compose... \t %b%s%b       *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                           *"
+            echo "*********************************************"
+            echo ""
+
+            shift
+            ;;
+        --neovim)
+            install_neovim
+
+            echo ""
+            echo "*********************************************"
+            echo "*              install status               *"
+            echo "*********************************************"
+            echo "*                                           *"
+
+            if nvim --version &>>/dev/null; then
+                printf "*            neovim... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*            neovim... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                           *"
+            echo "*********************************************"
+            echo ""
+
+            shift
+            ;;
+        --zsh)
+            install_zsh
+
+            echo ""
+            echo "*********************************************"
+            echo "*              install status               *"
+            echo "*********************************************"
+            echo "*                                           *"
+
+            if zsh --version &>>/dev/null; then
+                printf "*               zsh... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+            else
+                printf "*               zsh... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+            fi
+
+            echo "*                                           *"
+            echo "*********************************************"
+            echo ""
+
+            shift
+            ;;
+        -h | --help)
+            help
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        esac
+    done
+}
+
+main "$@"
