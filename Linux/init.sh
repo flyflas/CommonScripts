@@ -12,6 +12,10 @@ alias echo="echo -e"
 INSTALL_LOG=$(mktemp)
 trap 'rm -rf "${INSTALL_LOG}"' EXIT
 
+SSHD_CONFIG_FILE="/etc/ssh/sshd_config"
+SSH_PORT_MIN=50000
+SSH_PORT_MAX=60000
+
 END_COLOR="\033[0m"
 RED="\033[31m"
 GREEN="\033[32m"
@@ -256,7 +260,7 @@ install_neovim() {
     info "正在配置neovim"
     # 配置自动切换输入法
     [[ -d "$HOME/.config/nvim" ]] || mkdir -p "$HOME/.config/nvim"
-    cat >> init.lua <<EOF
+    cat >>init.lua <<EOF
 
 -- 记录当前输入法
 Current_input_method = vim.fn.system("/usr/local/bin/macism")
@@ -288,6 +292,71 @@ EOF
 
 }
 
+set_sshd() {
+    remind "正在设置sshd... "
+
+    sshd_status_file=$(mktemp)
+    trap 'rm -rf "${sshd_status_file}"' RETURN
+
+    curl --version || apt install -y curl
+
+    [[ -e /etc/ssh/sshd_config ]] && apt install -y openssh-server
+
+    mv "$SSHD_CONFIG_FILE" "${SSHD_CONFIG_FILE}_back"
+
+    info "正在下载配置文件"
+    curl -sSo "$SSHD_CONFIG_FILE" https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/sshd_config
+
+    random_number=$((SSH_PORT_MIN + RANDOM % (SSH_PORT_MAX - SSH_PORT_MIN + 1)))
+
+    sed -i "s/#Port 22/Port ${random_number}/" "$SSHD_CONFIG_FILE"
+    sed -i "s/#PermitRootLogin prohibit-password/PermitRootLogin yes/" "$SSHD_CONFIG_FILE"
+    sed -i "s/#PasswordAuthentication yes/PasswordAuthentication no/" "$SSHD_CONFIG_FILE"
+
+    info "正在生成SSH-Key"
+    ssh-keygen -t ed25519 -f "${HOME}/.ssh/id_ed25519" -N ''
+
+    if ! { [[ -e "${HOME}/.ssh/id_ed25519" ]] && [[ -e "${HOME}/.ssh/id_ed25519.pub" ]]; }; then
+        error "Error!!! 秘钥生成失败，正在回滚设置"
+        rm -rf "$SSHD_CONFIG_FILE"
+        mv "${SSHD_CONFIG_FILE}_back" "$SSHD_CONFIG_FILE"
+        systemctl restart sshd
+        return
+    fi
+
+    cat "${HOME}/.ssh/id_ed25519.pub" >>"${HOME}/.ssh/authorized_keys"
+
+    systemctl restart sshd
+
+    i=10
+    while ((i > 0)); do
+        info "正在重启ssh-server服务，请稍后... ${i}\r"
+        sleep 1
+        ((i--))
+    done
+
+    systemctl status sshd >>"$sshd_status_file"
+
+    # get status
+    if grep -m 1 "Active: active (running)" "$sshd_status_file"; then
+        info "sshd_config设置成功"
+        remind "私钥："
+        cat "${HOME}/.ssh/id_ed25519"
+        echo -e ""
+
+        remind "公钥: "
+        cat "${HOME}/.ssh/id_ed25519.pub"
+        echo -e ""
+
+        remind "端口： ${random_number}"
+    else
+        error "Failed!!! 正在回退设置"
+        rm -rf "$SSHD_CONFIG_FILE"
+        mv "${SSHD_CONFIG_FILE}_back" "$SSHD_CONFIG_FILE"
+        systemctl restart sshd
+    fi
+}
+
 help() {
     echo "用法： ./init.sh [-flags]"
     echo ""
@@ -299,6 +368,7 @@ help() {
     echo "          --bash : 配置bash"
     echo "          --docker: 安装docker"
     echo "          --neovim : 安装neovim"
+    echo "          --sshd : 设置sshd"
     echo "          --zsh : 安装zsh"
 }
 
@@ -318,6 +388,7 @@ main() {
             install_neovim
             install_zsh
             configure_shell
+            set_sshd
 
             echo ""
             echo "*****************************************************"
@@ -373,7 +444,8 @@ main() {
             install_neovim
             install_zsh
             configure_shell
-            
+            set_sshd
+
             echo ""
             echo "*****************************************************"
             echo "*                  install status                   *"
@@ -530,6 +602,10 @@ main() {
             echo "*********************************************"
             echo ""
 
+            shift
+            ;;
+        --sshd)
+            set_sshd
             shift
             ;;
         -h | --help)
