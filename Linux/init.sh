@@ -86,6 +86,7 @@ configure_shell() {
         echo "alias ll=\"ls -lh\""
         echo "alias la=\"ls -lha\""
         echo "alias vim=\"nvim\""
+        echo "alias cls=\"clear\""
     } >>"$HOME/${config_file}"
 
     info "终端配置完成，请重新登录终端"
@@ -142,8 +143,8 @@ config_baota() {
     # 登录
     # 关闭宝塔的验证码
     bt <<<23
-    login_result=$(curl -c "$cookie_file" 'http://192.168.230.2:8888/login' \
-        -H 'Origin: http://192.168.230.2:8888' \
+    login_result=$(curl -c "$cookie_file" 'http://127.0.0.1:8888/login' \
+        -H 'Origin: http://127.0.0.1:8888' \
         -H "Referer: $url" \
         --data-raw "username=$username_md5&password=$password_md5&code=" \
         --compressed \
@@ -160,7 +161,7 @@ config_baota() {
     trap 'rm -rf "${main_html}"' RETURN
 
     # 获取 csrf token
-    curl -o "$main_html" -b "$cookie_file" 'http://192.168.230.2:8888/' \
+    curl -o "$main_html" -b "$cookie_file" 'http://127.0.0.1:8888/' \
         -H 'DNT: 1' \
         -H "Referer: $url" \
         -H 'Upgrade-Insecure-Requests: 1' \
@@ -171,8 +172,8 @@ config_baota() {
     cookie_token=$(grep -m 1 request_token "$cookie_file" | awk '{print $7}')
 
     for i in "${plugins[@]}"; do
-        result=$(curl -b "$cookie_file" 'http://192.168.230.2:8888/plugin?action=install_plugin' \
-            -H 'Referer: http://192.168.230.2:8888/' \
+        result=$(curl -b "$cookie_file" 'http://127.0.0.1:8888/plugin?action=install_plugin' \
+            -H 'Referer: http://127.0.0.1:8888/' \
             -H "X-Cookie-Token: $cookie_token" \
             -H "X-Http-Token: $http_token" \
             --data-raw "$i" \
@@ -258,37 +259,37 @@ install_neovim() {
     apt install -y neovim
 
     info "正在配置neovim"
-    # 配置自动切换输入法
-    [[ -d "$HOME/.config/nvim" ]] || mkdir -p "$HOME/.config/nvim"
-    cat >>init.lua <<EOF
+#     # 配置自动切换输入法
+#     [[ -d "$HOME/.config/nvim" ]] || mkdir -p "$HOME/.config/nvim"
+#     cat >>init.lua <<EOF
 
--- 记录当前输入法
-Current_input_method = vim.fn.system("/usr/local/bin/macism")
+# -- 记录当前输入法
+# Current_input_method = vim.fn.system("/usr/local/bin/macism")
 
--- 切换到英文输入法
-function Switch_to_English_input_method()
-    Current_input_method = vim.fn.system("/usr/local/bin/macism")
-    if Current_input_method ~= "com.apple.keylayout.ABC\n" then
-        vim.fn.system("/usr/local/bin/macism com.apple.keylayout.ABC")
-    end
-end
+# -- 切换到英文输入法
+# function Switch_to_English_input_method()
+#     Current_input_method = vim.fn.system("/usr/local/bin/macism")
+#     if Current_input_method ~= "com.apple.keylayout.ABC\n" then
+#         vim.fn.system("/usr/local/bin/macism com.apple.keylayout.ABC")
+#     end
+# end
 
--- 设置输入法
-function Set_input_method()
-    if Current_input_method ~= "com.apple.keylayout.ABC\n" then
-        vim.fn.system("/usr/local/bin/macism " .. string.gsub(Current_input_method, "\n", ""))
-    end
-end
+# -- 设置输入法
+# function Set_input_method()
+#     if Current_input_method ~= "com.apple.keylayout.ABC\n" then
+#         vim.fn.system("/usr/local/bin/macism " .. string.gsub(Current_input_method, "\n", ""))
+#     end
+# end
 
--- 进入 normal 模式时切换为英文输入法
-vim.cmd([[
-augroup input_method
-  autocmd!
-  autocmd InsertEnter * :lua Set_input_method()
-  autocmd InsertLeave * :lua Switch_to_English_input_method()
-augroup END
-]])
-EOF
+# -- 进入 normal 模式时切换为英文输入法
+# vim.cmd([[
+# augroup input_method
+#   autocmd!
+#   autocmd InsertEnter * :lua Set_input_method()
+#   autocmd InsertLeave * :lua Switch_to_English_input_method()
+# augroup END
+# ]])
+# EOF
 
 }
 
