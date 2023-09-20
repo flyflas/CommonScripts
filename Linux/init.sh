@@ -376,7 +376,7 @@ install_baota() {
     remind "地址： ${url}"
 }
 
-options=$(getopt -o abh --long btop,baota,config,docker,neovim,zsh,help,small -n 'init.sh' -- "$@")
+options=$(getopt -o abh --long btop,baota,config,docker,neovim,zsh,help,small,reality -n 'init.sh' -- "$@")
 eval set -- "$options"
 
 apt update
