@@ -267,6 +267,8 @@ install_baota() {
     echo ""
     curl -sSO https://raw.githubusercontent.com/ztkink/bthappy/main/one_key_happy.sh && bash one_key_happy.sh <<<y
 
+    btpip install pyOpenSSL==22.1.0 && btpip install cffi==1.14
+
     info "宝塔安装完成"
 
     remind "正在配置宝塔面板......"
