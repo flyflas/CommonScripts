@@ -22,6 +22,8 @@ IS_SET_SSHD=false
 IS_INSTALL_NEOVIM=false
 IS_INSTALL_NEXTTRACE=false
 IS_INSTALL_REALITY=false
+IS_SHOW_RESULT=true
+IS_UPDATE=true
 
 SSHD_CONFIG_FILE="/etc/ssh/sshd_config"
 SSH_PORT_MIN=50000
@@ -64,12 +66,13 @@ help() {
     echo "Flags: "
     echo "          -a : 安装全部"
     echo "          -b : 安装除了baota面板的其他组件"
-    echo "          --small : 最小化安装"
+    echo "          --small : 最小化安装(btop zsh sshd noevim config_bash)"
     echo "          --btop : 安装btop"
     echo "          --baota : 安装baota"
     echo "          --bash : 配置bash"
     echo "          --docker: 安装docker"
     echo "          --neovim : 安装neovim"
+    echo "          --reality : 安装Reality"
     echo "          --sshd : 设置sshd"
     echo "          --zsh : 安装zsh"
 }
@@ -302,6 +305,9 @@ install_baota() {
     # 登录
     # 关闭宝塔的验证码
     bt <<<23
+
+    sleep 10
+
     login_result=$(curl -sS -c "$cookie_file" 'http://127.0.0.1:8888/login' \
         -H 'Origin: http://127.0.0.1:8888' \
         -H "Referer: $url" \
@@ -381,8 +387,6 @@ install_baota() {
 options=$(getopt -o abh --long btop,baota,config,docker,neovim,zsh,help,small,reality -n 'init.sh' -- "$@")
 eval set -- "$options"
 
-apt update
-
 while true; do
     case "$1" in
     -a)
@@ -456,6 +460,8 @@ while true; do
         ;;
     -h | --help)
         help
+        IS_SHOW_RESULT=false
+        IS_UPDATE=false
         shift
         ;;
     --)
@@ -464,6 +470,10 @@ while true; do
         ;;
     esac
 done
+
+if $IS_UPDATE; then
+    apt update
+fi
 
 if $IS_INSTALL_BTOP; then
     install_btop
@@ -498,102 +508,114 @@ if $IS_INSTALL_BAOTA; then
 fi
 
 if $IS_INSTALL_REALITY; then
-    curl -fsSL -o "${HOME}/Xray-script.sh" https://raw.githubusercontent.com/zxcvos/Xray-script/main/reality.sh && bash "${HOME}/Xray-script.sh" <<<1
+    apt install -y curl
+    curl -fsSL -o "${HOME}/Xray-script.sh" https://raw.githubusercontent.com/zxcvos/Xray-script/main/reality.sh && bash "${HOME}/Xray-script.sh"
 fi
 
 # show result
-echo ""
-echo "*****************************************************"
-echo "*                  install status                   *"
-echo "*****************************************************"
-echo "*                                                   *"
+if $IS_SHOW_RESULT; then
 
-if $IS_INSTALL_BTOP; then
-    if btop --version &>>/dev/null; then
-        printf "*          btop... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          btop... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
-    fi
-fi
+    echo ""
+    echo "*****************************************************"
+    echo "*                  install status                   *"
+    echo "*****************************************************"
+    echo "*                                                   *"
 
-if $IS_INSTALL_BAOTA; then
-    if bt --version &>>/dev/null; then
-        printf "*          baota... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          baota... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
-    fi
-fi
-
-if $IS_INSTALL_DOCKER; then
-    if docker --version &>>/dev/null; then
-        printf "*          docker... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          docker... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+    if $IS_INSTALL_BTOP; then
+        if btop --version &>>/dev/null; then
+            printf "*          btop... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          btop... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
     fi
 
-    if docker-compose --version &>>/dev/null; then
-        printf "*          docker-compose... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          docker-compose... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+    if $IS_INSTALL_BAOTA; then
+        if bt --version &>>/dev/null; then
+            printf "*          baota... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          baota... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
     fi
-fi
 
-if $IS_INSTALL_NEOVIM; then
-    if nvim --version &>>/dev/null; then
-        printf "*          neovim... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          neovim... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+    if $IS_INSTALL_DOCKER; then
+        if docker --version &>>/dev/null; then
+            printf "*          docker... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          docker... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
+
+        if docker-compose --version &>>/dev/null; then
+            printf "*          docker-compose... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          docker-compose... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
     fi
-fi
 
-if $IS_INSTALL_ZSH; then
-    if zsh --version &>>/dev/null; then
-        printf "*          zsh... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          zsh... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+    if $IS_INSTALL_NEOVIM; then
+        if nvim --version &>>/dev/null; then
+            printf "*          neovim... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          neovim... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
     fi
-fi
-
-if $IS_INSTALL_NEXTTRACE; then
-    if nexttrace --version &>>/dev/null; then
-        printf "*          nexttrace... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
-    else
-        printf "*          nexttrace... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
-    fi
-fi
-
-echo "*                                                   *"
-echo "*****************************************************"
-echo ""
-
-# show info
-echo ""
-echo "*****************************************************"
-echo "*                  setting info                     *"
-echo "*****************************************************"
-
-# get status
-if $IS_SET_SSHD && systemctl status sshd | grep -m 1 "Active: active (running)" >>/dev/null; then
-    remind "SSHD 配置信息"
-
-    info "公钥: "
-    cat "${HOME}/.ssh/id_ed25519.pub"
-
-    info "私钥（需要保存）："
-    cat "${HOME}/.ssh/id_ed25519"
-
-    info "端口（需要保存）： ${SSH_PORT}"
-
-    error "请务必保存好你的秘钥信息(私钥、SSH端口)！！！"
-    error "一定要先配置好本地的SSH信息，在断开该ssh连接。如果有关SSH的信息没有保存好，则无法登录该主机！！！"
-    error "建议先在打开一个终端，确保能够登录之后，在断开本终端！！！"
-fi
-
-if $IS_INSTALL_BAOTA; then
-    remind "宝塔配置信息"
-    info "宝塔面板用户名: ${BT_USERNAME}"
-    info "宝塔面板密码: ${BT_PASSWORD}"
-    info "宝塔面板URL: ${BT_URL}"
     
-    error "建议在完成必要的配置之后，停用宝塔面板（传言宝塔有T0级的漏洞，已经有用宝塔被挂马的案例了）。"
+    if $IS_INSTALL_REALITY; then
+        if xray --version &>>/dev/null; then
+            printf "*          reality... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          reality... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
+    fi
+
+    if $IS_INSTALL_ZSH; then
+        if zsh --version &>>/dev/null; then
+            printf "*          zsh... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          zsh... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
+    fi
+
+    if $IS_INSTALL_NEXTTRACE; then
+        if nexttrace --version &>>/dev/null; then
+            printf "*          nexttrace... \t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
+        else
+            printf "*          nexttrace... \t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
+        fi
+    fi
+
+    echo "*                                                   *"
+    echo "*****************************************************"
+    echo ""
+
+    # show info
+    echo ""
+    echo "*****************************************************"
+    echo "*                  setting info                     *"
+    echo "*****************************************************"
+
+    # get status
+    if $IS_SET_SSHD && systemctl status sshd | grep -m 1 "Active: active (running)" >>/dev/null; then
+        remind "SSHD 配置信息"
+
+        info "公钥: "
+        cat "${HOME}/.ssh/id_ed25519.pub"
+
+        info "私钥（需要保存）："
+        cat "${HOME}/.ssh/id_ed25519"
+
+        info "端口（需要保存）： ${SSH_PORT}"
+
+        error "请务必保存好你的秘钥信息(私钥、SSH端口)！！！"
+        error "一定要先配置好本地的SSH信息，在断开该ssh连接。如果有关SSH的信息没有保存好，则无法登录该主机！！！"
+        error "建议先在打开一个终端，确保能够登录之后，在断开本终端！！！"
+    fi
+
+    if $IS_INSTALL_BAOTA; then
+        remind "宝塔配置信息"
+        info "宝塔面板用户名: ${BT_USERNAME}"
+        info "宝塔面板密码: ${BT_PASSWORD}"
+        info "宝塔面板URL: ${BT_URL}"
+
+        error "建议在完成必要的配置之后，停用宝塔面板（传言宝塔有T0级的漏洞，已经有用宝塔被挂马的案例了）。"
+    fi
 fi
