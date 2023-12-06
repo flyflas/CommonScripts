@@ -1,0 +1,45 @@
+listen: :Port
+
+tls:
+  cert: /opt/ssl/cert.pem
+  key: /opt/ssl/key.pem
+
+quic:
+  initStreamReceiveWindow: 8388608 
+  maxStreamReceiveWindow: 8388608 
+  initConnReceiveWindow: 20971520 
+  maxConnReceiveWindow: 20971520 
+  maxIdleTimeout: 30s 
+  maxIncomingStreams: 1024 
+  disablePathMTUDiscovery: false 
+
+bandwidth:
+  up: 1 gbps
+  down: 1 gbps
+
+disableUDP: false
+udpIdleTimeout: 60s
+
+auth:
+  type: password
+  password: UUID
+
+outbounds:
+  - name: v4_only
+    type: direct
+    direct:
+      mode: 4
+  - name: v6_only
+    type: direct
+    direct:
+      mode: 6
+
+
+acl:
+  inline: 
+    - reject(geoip:cn)
+    - reject(*.ai.com)
+    - v6_only(*.google.com)
+    - v6_only(*.instagram.com)
+    - v6_only(*.openai.com)
+    - direct(all)
