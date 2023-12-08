@@ -350,6 +350,15 @@ install_hysteria() {
     else
         error "Hysteria 运行失败，请查看原因"
     fi
+    
+    info "如果你想要使用端口跳跃功能，请运行以下的命令..."
+    warning "请注意替换网卡，目标端口！！！"
+    echo ""
+    echo ""
+    info "iptables -t nat -A PREROUTING -i eth0 -p udp --dport 20000:50000 -j DNAT --to-destination :443"
+    info "ip6tables -t nat -A PREROUTING -i eth0 -p udp --dport 20000:50000 -j DNAT --to-destination :443"
+    echo ""
+    echo ""
 }
 
 
