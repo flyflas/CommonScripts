@@ -252,6 +252,107 @@ config_shell() {
     info "终端配置完成，请重新登录终端"
 }
 
+install_acme() {
+    ssl_path="/opt/ssl"
+    acme_path="$HOME/.acme.sh"
+
+    if ! [[ -e "${acme_path}" ]]; then
+        read -r -p "请输入邮箱：" email
+        curl https://get.acme.sh | sh -s email="$email"
+    fi
+
+    until [[ "$chosen" == "y" ]] || [[ "$chosen" == "n" ]]; do
+        read -r -p "是否申请证书(y/n): " chosen
+    done
+
+    if [[ "$chosen" == "n" ]]; then
+        return
+    fi
+
+    until [[ "$dns" == "0" ]] || [[ "$dns" == "1" ]] || [[ "$dns" == "2" ]]; do
+        echo "请输入你的DNS: "
+        printf "\t0. 退出\n"
+        printf "\t1. Cloudflare\n"
+        printf "\t2. DNSPOD.COM\n"
+        read -r dns
+    done
+
+    if [[ "$dns" == 0 ]]; then
+        return
+    fi
+
+    read -r -p "请输入你需要申请证书的域名： " domain
+    if [[ "$dns" == "1" ]]; then
+        read -r -p "请输入你的CF_Account_ID: " account_id
+        read -r -p "请输入你的CF_Token: " token
+
+        export CF_Account_ID="$account_id"
+        export CF_Token="$token"
+
+        if "${acme_path}/acme.sh" --issue --dns dns_cf -d "$domain"; then
+            info "证书申请成功"
+            mkdir "$ssl_path"
+            "${acme_path}/acme.sh" --install-cert -d "$domain" \
+                --key-file "${ssl_path}/key.pem" \
+                --fullchain-file "${ssl_path}/cert.pem"
+        else
+            error "证书申请失败，请检查原因...."
+        fi
+
+    elif [[ "$dns" == "1" ]]; then
+        read -r -p "请输入你的DPI_Id: " dpi_id
+        read -r -p "请输入你的DPI_Key: " dpi_key
+
+        export CF_Account_ID="$dpi_id"
+        export CF_Token="$dpi_key"
+
+        if "${acme_path}/acme.sh" --issue --dns dns_dpi -d "$domain"; then
+            info "证书申请成功"
+            mkdir "$ssl_path"
+            "${acme_path}/acme.sh" --install-cert -d "$domain" \
+                --key-file "${ssl_path}/key.pem" \
+                --fullchain-file "${ssl_path}/cert.pem"
+        else
+            error "证书申请失败，请检查原因...."
+        fi
+    fi
+    
+    chmod +r "${ssl_path}/key.pem" 
+
+}
+
+install_hysteria() {
+    if hysteria -h; then
+        remind "Hysteria 已经安装！！！"
+        return
+    fi
+
+    bash <(curl -fsSL https://get.hy2.sh/) &&
+        mv /etc/hysteria/config.yaml /etc/hysteria/config.yaml.back &&
+        curl -sSL -o /etc/hysteria/config.yaml https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/hysteria2_config.yaml
+    
+    read -r -p "请输入Hysteria2 的端口: " port
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+
+    sed -i "s/Port\b/$port/" /etc/hysteria/config.yaml
+    sed -i "s/UUID\b/$uuid/" /etc/hysteria/config.yaml
+    
+    systemctl enable hysteria-server.service &&
+    systemctl restart hysteria-server.service 
+    
+    status=$(systemctl status hysteria-server.service | grep 'Active:' | awk '{print $2}')
+    if [[ "$status" == "active" ]]; then
+        info "Hysteria 运行成功"
+        echo "端口：${port}"
+        echo "密码： ${uuid}"
+        echo "ipv4: $(curl -s4 ifconfig.co)"
+        echo "ipv6: $(curl -s6 ifconfig.co)"
+    else
+        error "Hysteria 运行失败，请查看原因"
+    fi
+}
+
+
 install_baota() {
     remind "开始安装宝塔面板......"
 
