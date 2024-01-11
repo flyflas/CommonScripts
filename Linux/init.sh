@@ -24,6 +24,16 @@ IS_INSTALL_NEXTTRACE=false
 IS_INSTALL_REALITY=false
 IS_SHOW_RESULT=true
 IS_UPDATE=true
+IS_SWITCH_MIRROR=false
+
+# 软件下载地址，国内节点用于替换加速
+URL_BTOP_REPOSITORY="https://github.com/aristocratos/btop.git"
+URL_DOCKER_COMPOSE_RELEASE="https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
+URL_SSHD_CONFIG="https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/sshd_config"
+URL_OH_MY_ZSH_SCRIPT="https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh"
+URL_POWERLEVEL10K_REPOSITORY="https://github.com/romkatv/powerlevel10k.git"
+URL_BAOTA_SCRIPT="https://raw.githubusercontent.com/zhucaidan/btpanel-v7.7.0/main/install/install_panel.sh"
+URL_BAOTA_HAPPY_SCRIPT="https://raw.githubusercontent.com/ztkink/bthappy/main/one_key_happy.sh"
 
 SSHD_CONFIG_FILE="/etc/ssh/sshd_config"
 SSH_PORT_MIN=50000
@@ -66,6 +76,7 @@ help() {
     echo "Flags: "
     echo "          -a : 安装全部"
     echo "          -b : 安装除了baota面板的其他组件"
+    echo "          -s : 切换国内镜像源"
     echo "          --small : 最小化安装(btop zsh sshd noevim config_bash)"
     echo "          --btop : 安装btop"
     echo "          --baota : 安装baota"
@@ -75,6 +86,16 @@ help() {
     echo "          --reality : 安装Reality"
     echo "          --sshd : 设置sshd"
     echo "          --zsh : 安装zsh"
+}
+
+switch_mirror() {
+    URL_BTOP_REPOSITORY="https://github.499990.xyz/https://github.com/aristocratos/btop.git"
+    URL_DOCKER_COMPOSE_RELEASE="https://github.499990.xyz/https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
+    URL_SSHD_CONFIG="https://github.499990.xyz/https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/sshd_config"
+    URL_OH_MY_ZSH_SCRIPT="https://github.499990.xyz/https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh"
+    URL_POWERLEVEL10K_REPOSITORY="https://github.499990.xyz/https://github.com/romkatv/powerlevel10k.git"
+    URL_BAOTA_SCRIPT="https://github.499990.xyz/https://raw.githubusercontent.com/zhucaidan/btpanel-v7.7.0/main/install/install_panel.sh"
+    URL_BAOTA_HAPPY_SCRIPT="https://github.499990.xyz/https://raw.githubusercontent.com/ztkink/bthappy/main/one_key_happy.sh"
 }
 
 install_btop() {
@@ -87,7 +108,7 @@ install_btop() {
 
     info "正在编译btop源码，这可能需要一段时间......"
     cd "$HOME" &&
-        git clone https://github.com/aristocratos/btop.git &&
+        git clone "$URL_BTOP_REPOSITORY" &&
         cd btop &&
         make &&
         make install
@@ -109,7 +130,7 @@ install_docker() {
 
     info "正在安装docker-compose"
     # install docker-compose
-    curl -sSL https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose &&
+    curl -sSL "$URL_DOCKER_COMPOSE_RELEASE" -o /usr/local/bin/docker-compose &&
         chmod +x /usr/local/bin/docker-compose || error "docker-compose 安装失败"
 
     info "docker安装完成"
@@ -140,7 +161,7 @@ set_sshd() {
     mv "$SSHD_CONFIG_FILE" "${SSHD_CONFIG_FILE}_back"
 
     info "正在下载配置文件"
-    curl -sSo "$SSHD_CONFIG_FILE" https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/sshd_config
+    curl -sSo "$SSHD_CONFIG_FILE" "$URL_SSHD_CONFIG"
 
     SSH_PORT=$((SSH_PORT_MIN + RANDOM % (SSH_PORT_MAX - SSH_PORT_MIN + 1)))
 
@@ -207,12 +228,12 @@ install_zsh() {
 
     info "正在安装on-my-zsh"
     # install oh-my-zsh
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)" <<<n
+    sh -c "$(curl -fsSL "$URL_OH_MY_ZSH_SCRIPT")" <<<n
 
     info "正在安装powerlevel10k"
     # install powerlevel10k
     apt install git &&
-        git clone https://github.com/romkatv/powerlevel10k.git ~/.oh-my-zsh/custom/themes/powerlevel10k &&
+        git clone "$URL_POWERLEVEL10K_REPOSITORY" ~/.oh-my-zsh/custom/themes/powerlevel10k &&
         grep -q '^ZSH_THEME=' ~/.zshrc && sed -i 's/^ZSH_THEME=.*/ZSH_THEME="powerlevel10k\/powerlevel10k"/' ~/.zshrc
 
     info "重启终端生效......"
@@ -316,8 +337,8 @@ install_acme() {
             error "证书申请失败，请检查原因...."
         fi
     fi
-    
-    chmod +r "${ssl_path}/key.pem" 
+
+    chmod +r "${ssl_path}/key.pem"
 
 }
 
@@ -330,16 +351,16 @@ install_hysteria() {
     bash <(curl -fsSL https://get.hy2.sh/) &&
         mv /etc/hysteria/config.yaml /etc/hysteria/config.yaml.back &&
         curl -sSL -o /etc/hysteria/config.yaml https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/hysteria2_config.yaml
-    
+
     read -r -p "请输入Hysteria2 的端口: " port
     uuid=$(cat /proc/sys/kernel/random/uuid)
 
     sed -i "s/Port\b/$port/" /etc/hysteria/config.yaml
     sed -i "s/UUID\b/$uuid/" /etc/hysteria/config.yaml
-    
+
     systemctl enable hysteria-server.service &&
-    systemctl restart hysteria-server.service 
-    
+        systemctl restart hysteria-server.service
+
     status=$(systemctl status hysteria-server.service | grep 'Active:' | awk '{print $2}')
     if [[ "$status" == "active" ]]; then
         info "Hysteria 运行成功"
@@ -350,7 +371,7 @@ install_hysteria() {
     else
         error "Hysteria 运行失败，请查看原因"
     fi
-    
+
     info "如果你想要使用端口跳跃功能，请运行以下的命令..."
     warning "请注意替换网卡，目标端口！！！"
     echo ""
@@ -360,7 +381,6 @@ install_hysteria() {
     echo ""
     echo ""
 }
-
 
 install_baota() {
     remind "开始安装宝塔面板......"
@@ -373,12 +393,12 @@ install_baota() {
     echo ""
     info "正在安装宝塔面板V7.7......"
     echo ""
-    curl -sSO https://raw.githubusercontent.com/zhucaidan/btpanel-v7.7.0/main/install/install_panel.sh && bash install_panel.sh <<<y >>"$INSTALL_LOG"
+    curl -sSO "$URL_BAOTA_SCRIPT" && bash install_panel.sh <<<y >>"$INSTALL_LOG"
 
     echo ""
     info "正在安装破解补丁......"
     echo ""
-    curl -sSO https://raw.githubusercontent.com/ztkink/bthappy/main/one_key_happy.sh && bash one_key_happy.sh <<<y
+    curl -sSO "$URL_BAOTA_HAPPY_SCRIPT" && bash one_key_happy.sh <<<y
 
     btpip install pyOpenSSL==22.1.0 && btpip install cffi==1.14
 
@@ -494,11 +514,16 @@ install_baota() {
     remind "地址： ${url}"
 }
 
-options=$(getopt -o abh --long btop,baota,config,docker,neovim,zsh,help,small,reality -n 'init.sh' -- "$@")
+options=$(getopt -o abhs --long btop,baota,config,docker,neovim,zsh,help,small,reality -n 'init.sh' -- "$@")
 eval set -- "$options"
 
 while true; do
     case "$1" in
+    -s)
+        IS_SWITCH_MIRROR=true
+
+        shift
+        ;;
     -a)
         IS_INSTALL_BTOP=true
         IS_INSTALL_DOCKER=true
@@ -585,6 +610,10 @@ if $IS_UPDATE; then
     apt update
 fi
 
+if $IS_SWITCH_MIRROR; then
+    switch_mirror
+fi
+
 if $IS_INSTALL_BTOP; then
     install_btop
 fi
@@ -668,7 +697,7 @@ if $IS_SHOW_RESULT; then
             printf "*          neovim... \t\t %b%s%b             *\n" "$RED" "failed" "$END_COLOR"
         fi
     fi
-    
+
     if $IS_INSTALL_REALITY; then
         if xray --version &>>/dev/null; then
             printf "*          reality... \t\t %b%s%b                 *\n" "$GREEN" "ok" "$END_COLOR"
