@@ -382,6 +382,184 @@ install_hysteria() {
     echo ""
 }
 
+install_baota_v8() {
+    remind "开始安装宝塔面板......"
+
+    bt --version && warning "宝塔面板已经存在，跳过..." && return
+
+    apt-get update && apt-get install -y curl wget git jq
+
+    echo ""
+    info "正在安装宝塔面板V8.0.3......"
+    echo ""
+    curl -sSL -o "install_panel.sh" "https://install.baota.sbs/install/install_6.0.sh" && bash install_panel.sh <<<y >>"$INSTALL_LOG"
+
+    # echo ""
+    # info "正在安装破解补丁......"
+    # echo ""
+    # curl -sSO "$URL_BAOTA_HAPPY_SCRIPT" && bash one_key_happy.sh <<<y
+
+    # btpip install pyOpenSSL==22.1.0 && btpip install cffi==1.14
+
+    info "宝塔安装完成"
+
+    remind "正在配置宝塔面板......"
+
+    ! [[ -e "$INSTALL_LOG" ]] && return
+
+    cookie_file=$(mktemp)
+    trap 'rm -rf "${cookie_file}"' RETURN
+
+    # plugins=(
+    #     "sName=nginx&version=1.22&type=1&id=32"
+    #     "sName=mysql&version=5.6&type=1&id=32"
+    #     "sName=pureftpd&version=1.0.49&type=1&id=32"
+    #     "sName=php-7.4&version=7.4&type=1&id=32"
+    #     "sName=phpmyadmin&version=4.4&type=1&id=32"
+    # )
+
+    plugins=(
+        "sName=nginx&version=1.22&type=1&id=32"
+    )
+
+    user_agent="User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+
+    login_page=$(mktemp)
+    trap 'rm -rf "${login_page}"' EXIT
+
+    login_cookie=$(mktemp)
+    trap 'rm -rf "${login_cookie}"' EXIT
+
+    # 获取登录信息
+    username=$(grep -m 1 username "$INSTALL_LOG" | awk -F'[: ]+' '{print $2}')
+    password=$(grep -m 1 password "$INSTALL_LOG" | sed 's/password:[[:space:]]*//' | awk -F'[: ]+' '{print $2}')
+    url=$(grep -m 1 "内网面板地址" "$INSTALL_LOG" | awk -F': ' '{print $2}')
+    port=$(echo "$url" | awk -F: '{print $3}' | awk -F/ '{print $1}')
+    path=$(echo "$url" | awk -F: '{print $3}' | awk -F/ '{print $2}')
+
+    # 获取 last_token
+    curl -sS -c "$login_cookie" -o "$login_page" "http://127.0.0.1:${port}/${path}" \
+        -H "$user_agent" \
+        --compressed \
+        --insecure
+
+    last_token=$(grep -m 1 last_token "$login_page" | grep -oP 'data="([^"]+)"' | cut -d'"' -f2)
+    public_key=$(grep -m 1 public_key "$login_page" | grep -oP 'data="([^"]+)"' | cut -d'"' -f2)
+    public_key_length=${#public_key}
+    # 转化为标准公钥形式
+    public_key=$(echo "$public_key" | sed 's/-----BEGIN PUBLIC KEY-----/-----BEGIN PUBLIC KEY-----\n/;s/-----END PUBLIC KEY-----/\n-----END PUBLIC KEY-----/')
+
+    # username_md5=$(echo -n "$username" "$last_token" | md5sum | awk '{print $1}' | md5sum | awk '{print $1}')
+
+    username_md5=$(echo -n "$username""$last_token" | md5sum | awk '{print $1}')
+    username_md5_md5=$(echo -n "$username_md5" | md5sum | awk '{print $1}')
+    password_md5_tmp="$(echo -n "$password" | md5sum | awk '{print $1}')_bt.cn"
+    password_md5_md5=$(echo -n "$password_md5_tmp" | md5sum | awk '{print $1}')
+
+    encrypted_username=""
+    encrypted_password=""
+
+    if [[ "$public_key_length" -gt 10 ]]; then
+        encrypted_username=$(echo -n "$username_md5_md5" | openssl pkeyutl -encrypt -pubin -inkey <(echo "$public_key") | openssl base64 -A)
+        encrypted_password=$(echo -n "$password_md5_md5" | openssl pkeyutl -encrypt -pubin -inkey <(echo "$public_key") | openssl base64 -A)
+    else
+        encrypted_username="$username_md5_md5"
+        encrypted_password="$password_md5_md5"
+    fi
+
+    # 登录
+    # 关闭宝塔的验证码
+    bt <<<23
+
+    sleep 10
+
+    login_result=$(curl -sS -b "$login_cookie" -c "$cookie_file" "http://127.0.0.1:${port}/login" \
+        -H 'Content-Type: multipart/form-data' \
+        -H "Origin: http://127.0.0.1:${port}" \
+        -H "Referer: http://127.0.0.1:${port}/${path}" \
+        -H "$user_agent" \
+        -F "username=${encrypted_username}" \
+        -F "password=${encrypted_password}" \
+        --compressed \
+        --insecure)
+
+    # login_result=$(curl -sS -c "$cookie_file" "http://127.0.0.1:${port}/login" \
+    #     -H "Origin: http://127.0.0.1:${port}" \
+    #     -H "Referer: $url" \
+    #     --data-raw "username=${encrypted_username}password=${encrypted_password}&code=" \
+    #     --compressed \
+    #     --insecure)
+
+    info "login_result: ${login_result}"
+
+    if ! (echo "$login_result" | jq -r '.status'); then
+        error "宝塔面板登录失败！！！"
+        error "请自行登录宝塔面板，完成初始化操作"
+        return
+    else
+        info "宝塔面板登录成功"
+    fi
+
+    main_html=$(mktemp)
+    trap 'rm -rf "${main_html}"' EXIT
+
+    # 获取 csrf token
+    curl -sS -o "$main_html" -b "$cookie_file" "http://127.0.0.1:${port}/?license=True" \
+        -H 'DNT: 1' \
+        -H "Referer: http://127.0.0.1:${port}/${path}" \
+        -H 'Upgrade-Insecure-Requests: 1' \
+        --compressed \
+        --insecure
+
+    http_token=$(grep -m 1 request_token_head "$main_html" | awk -F'token="' '/request_token_head/ {print $2}' | awk -F'"' '{print $1}')
+
+    for i in "${plugins[@]}"; do
+        result=$(curl -sS -b "$cookie_file" "http://127.0.0.1:${port}/plugin?action=install_plugin" \
+            -H "Referer: http://127.0.0.1:${port}/" \
+            -H "X-Http-Token: $http_token" \
+            --data-raw "$i" \
+            --compressed \
+            --insecure)
+
+        remind "$result"
+    done
+
+    if $IS_SET_SSHD; then
+        # 设置SSH端口
+        result=$(curl -sS -b "$cookie_file" "http://127.0.0.1:${port}/safe/firewall/create_rules" \
+            -H "Referer: http://127.0.0.1:${port}/firewall" \
+            -H "X-Http-Token: $http_token" \
+            --data-raw "data=%7B%22protocol%22%3A%22tcp%22%2C%22ports%22%3A%22${SSH_PORT}%22%2C%22choose%22%3A%22all%22%2C%22address%22%3A%22%22%2C%22domain%22%3A%22%22%2C%22types%22%3A%22accept%22%2C%22brief%22%3A%22SSHD%22%2C%22source%22%3A%22%22%7D" \
+            --compressed \
+            --insecure)
+
+        info "$result"
+    fi
+
+    until [[ "$chosen" == "y" ]] || [[ "$chosen" == "n" ]]; do
+        read -r -p "是否要修改用户名和密码(y/n)？" chosen
+    done
+
+    # 修改密码
+    if [[ "$chosen" == "y" ]]; then
+        read -rp "请输入用户名: " username
+        read -rp "请输入密码： " password
+
+        bt <<<6 "$username" >>/dev/null
+        bt <<<5 "$password" >>/dev/null
+
+        info "用户名密码修改成功!"
+    fi
+
+    BT_USERNAME="$username"
+    BT_PASSWORD="$password"
+    BT_URL="$url"
+
+    remind "用户名： ${username}"
+    remind "密码： ${password}"
+    remind "地址： ${url}"
+}
+
 install_baota() {
     remind "开始安装宝塔面板......"
 
@@ -602,6 +780,13 @@ while true; do
     --)
         shift
         break
+        ;;
+
+    *)
+        help
+        IS_SHOW_RESULT=false
+        IS_UPDATE=false
+        shift
         ;;
     esac
 done
