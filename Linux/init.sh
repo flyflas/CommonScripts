@@ -824,7 +824,7 @@ if $IS_CONFIG_SHELL; then
 fi
 
 if $IS_INSTALL_NEXTTRACE; then
-    bash -c "$(curl http://nexttrace-io-leomoe-api-a0.shop/nt_install.sh)"
+    bash -c "$(curl curl nxtrace.org/nt)
 fi
 
 if $IS_INSTALL_BAOTA; then
