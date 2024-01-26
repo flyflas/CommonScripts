@@ -277,6 +277,11 @@ install_acme() {
     ssl_path="/opt/ssl"
     acme_path="$HOME/.acme.sh"
 
+    # 清空输入缓冲区
+    while read -r -t 0; do
+        read -r
+    done
+
     if ! [[ -e "${acme_path}" ]]; then
         read -r -p "请输入邮箱：" email
         curl https://get.acme.sh | sh -s email="$email"
@@ -301,6 +306,11 @@ install_acme() {
     if [[ "$dns" == 0 ]]; then
         return
     fi
+
+    # 清空输入缓冲区
+    while read -r -t 0; do
+        read -r
+    done
 
     read -r -p "请输入你需要申请证书的域名： " domain
     if [[ "$dns" == "1" ]]; then
@@ -351,6 +361,11 @@ install_hysteria() {
     bash <(curl -fsSL https://get.hy2.sh/) &&
         mv /etc/hysteria/config.yaml /etc/hysteria/config.yaml.back &&
         curl -sSL -o /etc/hysteria/config.yaml https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/hysteria2_config.yaml
+
+    # 清空输入缓冲区
+    while read -r -t 0; do
+        read -r
+    done
 
     read -r -p "请输入Hysteria2 的端口: " port
     uuid=$(cat /proc/sys/kernel/random/uuid)
