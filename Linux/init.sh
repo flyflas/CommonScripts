@@ -25,6 +25,7 @@ IS_INSTALL_REALITY=false
 IS_SHOW_RESULT=true
 IS_UPDATE=true
 IS_SWITCH_MIRROR=false
+IS_INSTALL_HYSTERIA=false
 
 # 软件下载地址，国内节点用于替换加速
 URL_BTOP_REPOSITORY="https://github.com/aristocratos/btop.git"
@@ -707,7 +708,7 @@ install_baota() {
     remind "地址： ${url}"
 }
 
-options=$(getopt -o abhs --long btop,baota,config,docker,neovim,zsh,help,small,reality -n 'init.sh' -- "$@")
+options=$(getopt -o abhs --long btop,baota,config,docker,neovim,zsh,help,small,reality,hysteria -n 'init.sh' -- "$@")
 eval set -- "$options"
 
 while true; do
@@ -786,22 +787,22 @@ while true; do
         IS_INSTALL_NEXTTRACE=true
         shift
         ;;
+
+    --hysteria)
+        IS_INSTALL_HYSTERIA=true
+        shift
+        ;;
     -h | --help)
         help
         IS_SHOW_RESULT=false
         IS_UPDATE=false
         shift
         ;;
-    --)
-        shift
-        break
-        ;;
-
     *)
         help
         IS_SHOW_RESULT=false
         IS_UPDATE=false
-        shift
+        exit 1
         ;;
     esac
 done
@@ -849,6 +850,11 @@ fi
 if $IS_INSTALL_REALITY; then
     apt install -y curl
     curl -fsSL -o "${HOME}/Xray-script.sh" https://raw.githubusercontent.com/zxcvos/Xray-script/main/reality.sh && bash "${HOME}/Xray-script.sh"
+fi
+
+if $IS_INSTALL_HYSTERIA; then
+    install_acme
+    install_hysteria
 fi
 
 # show result
