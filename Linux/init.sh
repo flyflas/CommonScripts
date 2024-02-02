@@ -22,8 +22,8 @@ IS_SET_SSHD=false
 IS_INSTALL_NEOVIM=false
 IS_INSTALL_NEXTTRACE=false
 IS_INSTALL_REALITY=false
-IS_SHOW_RESULT=true
-IS_UPDATE=true
+IS_SHOW_RESULT=false
+IS_UPDATE=false
 IS_SWITCH_MIRROR=false
 IS_INSTALL_HYSTERIA=false
 
@@ -71,6 +71,10 @@ warning() {
     echo "${YELLOW}$*${END_COLOR}"
 }
 
+clear_buffer() {
+    read -r -t 0.001 -n 1000 discard
+}
+
 help() {
     echo "用法： ./init.sh [-flags]"
     echo ""
@@ -84,6 +88,7 @@ help() {
     echo "          --bash : 配置bash"
     echo "          --docker: 安装docker"
     echo "          --neovim : 安装neovim"
+    echo "          --nexttrace : 安装nexttrace"
     echo "          --reality : 安装Reality"
     echo "          --sshd : 设置sshd"
     echo "          --zsh : 安装zsh"
@@ -279,15 +284,18 @@ install_acme() {
     acme_path="$HOME/.acme.sh"
 
     # 清空输入缓冲区
-    while read -r -t 0; do
-        read -r
-    done
+    # while read -r -t 0; do
+    # read -r
+    # done
+
+    clear_buffer
 
     if ! [[ -e "${acme_path}" ]]; then
         read -r -p "请输入邮箱：" email
         curl https://get.acme.sh | sh -s email="$email"
     fi
 
+    clear_buffer
     until [[ "$chosen" == "y" ]] || [[ "$chosen" == "n" ]]; do
         read -r -p "是否申请证书(y/n): " chosen
     done
@@ -296,6 +304,7 @@ install_acme() {
         return
     fi
 
+    clear_buffer
     until [[ "$dns" == "0" ]] || [[ "$dns" == "1" ]] || [[ "$dns" == "2" ]]; do
         echo "请输入你的DNS: "
         printf "\t0. 退出\n"
@@ -309,9 +318,10 @@ install_acme() {
     fi
 
     # 清空输入缓冲区
-    while read -r -t 0; do
-        read -r
-    done
+    # while read -r -t 0; do
+    # read -r
+    # done
+    clear_buffer
 
     read -r -p "请输入你需要申请证书的域名： " domain
     if [[ "$dns" == "1" ]]; then
@@ -364,9 +374,10 @@ install_hysteria() {
         curl -sSL -o /etc/hysteria/config.yaml https://raw.githubusercontent.com/flyflas/CommonScripts/main/Linux/hysteria2_config.yaml
 
     # 清空输入缓冲区
-    while read -r -t 0; do
-        read -r
-    done
+    # while read -r -t 0; do
+    # read -r
+    # done
+    clear_buffer
 
     read -r -p "请输入Hysteria2 的端口: " port
     uuid=$(cat /proc/sys/kernel/random/uuid)
@@ -552,10 +563,12 @@ install_baota_v8() {
         info "$result"
     fi
 
+    clear_buffer
     until [[ "$chosen" == "y" ]] || [[ "$chosen" == "n" ]]; do
         read -r -p "是否要修改用户名和密码(y/n)？" chosen
     done
 
+    clear_buffer
     # 修改密码
     if [[ "$chosen" == "y" ]]; then
         read -rp "请输入用户名: " username
@@ -684,10 +697,12 @@ install_baota() {
             --insecure)
     fi
 
+    clear_buffer
     until [[ "$chosen" == "y" ]] || [[ "$chosen" == "n" ]]; do
         read -r -p "是否要修改用户名和密码(y/n)？" chosen
     done
 
+    clear_buffer
     # 修改密码
     if [[ "$chosen" == "y" ]]; then
         read -rp "请输入用户名: " username
@@ -708,7 +723,14 @@ install_baota() {
     remind "地址： ${url}"
 }
 
-options=$(getopt -o abhs --long btop,baota,config,docker,neovim,zsh,help,small,reality,hysteria -n 'init.sh' -- "$@")
+# 如果没有提供任何参数，则默认启用 --help 选项
+if [ $# -eq 0 ]; then
+    help
+    IS_SHOW_RESULT=false
+    IS_UPDATE=false
+fi
+
+options=$(getopt -o abhs --long btop,baota,config,docker,neovim,zsh,help,small,reality,hysteria,nexttrace -n 'init.sh' -- "$@")
 eval set -- "$options"
 
 while true; do
@@ -719,6 +741,8 @@ while true; do
         shift
         ;;
     -a)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_BTOP=true
         IS_INSTALL_DOCKER=true
         IS_INSTALL_ZSH=true
@@ -731,6 +755,8 @@ while true; do
         shift
         ;;
     -b)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_BTOP=true
         IS_INSTALL_DOCKER=true
         IS_INSTALL_ZSH=true
@@ -742,6 +768,8 @@ while true; do
         shift
         ;;
     --small)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_BTOP=true
         IS_INSTALL_ZSH=true
         IS_SET_SSHD=true
@@ -752,56 +780,77 @@ while true; do
         shift
         ;;
     --btop)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_BTOP=true
         shift
         ;;
     --baota)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_BAOTA=true
         shift
         ;;
     --config)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_CONFIG_SHELL=true
         shift
         ;;
     --docker)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_DOCKER=true
         shift
         ;;
     --neovim)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_NEOVIM=true
         shift
         ;;
     --zsh)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_ZSH=true
         shift
         ;;
     --sshd)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_SET_SSHD=true
         shift
         ;;
     --reality)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_REALITY=true
         shift
         ;;
     --nexttrace)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_NEXTTRACE=true
         shift
         ;;
 
     --hysteria)
+        IS_SHOW_RESULT=true
+        IS_UPDATE=true
         IS_INSTALL_HYSTERIA=true
         shift
         ;;
     -h | --help)
         help
-        IS_SHOW_RESULT=false
-        IS_UPDATE=false
         shift
         ;;
+    --)
+        shift
+        break
+        ;;
     *)
-        help
-        IS_SHOW_RESULT=false
-        IS_UPDATE=false
+        # 处理其他参数或无效选项
+        echo "Invalid option or argument: $1"
         exit 1
         ;;
     esac
