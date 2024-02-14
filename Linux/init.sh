@@ -247,6 +247,7 @@ install_zsh() {
 
 config_shell() {
     remind "正在配置终端"
+    timedatectl set-timezone Asia/Shanghai
 
     # 判断终端的类型
     config_file=""
