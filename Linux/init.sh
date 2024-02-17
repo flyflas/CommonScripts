@@ -562,6 +562,17 @@ install_baota_v8() {
             --insecure)
 
         info "$result"
+    else
+        # 设置SSH端口
+        sshd_port=$(grep -m 1 Port /etc/ssh/sshd_config | awk '/Port/ {print $2}')
+        info "SSHD Port: ${sshd_port}, 正在添加防火墙"
+        result=$(curl -sS -b "$cookie_file" "http://127.0.0.1:${port}/safe/firewall/create_rules" \
+            -H "Referer: http://127.0.0.1:${port}/firewall" \
+            -H "X-Http-Token: $http_token" \
+            --data-raw "data=%7B%22protocol%22%3A%22tcp%22%2C%22ports%22%3A%22${sshd_port}%22%2C%22choose%22%3A%22all%22%2C%22address%22%3A%22%22%2C%22domain%22%3A%22%22%2C%22types%22%3A%22accept%22%2C%22brief%22%3A%22SSHD%22%2C%22source%22%3A%22%22%7D" \
+            --compressed \
+            --insecure)
+        info "$result"
     fi
 
     clear_buffer
@@ -696,6 +707,18 @@ install_baota() {
             --data-raw "port=${SSH_PORT}&type=port&ps=SSH_PORT" \
             --compressed \
             --insecure)
+    else
+        # 设置SSH端口
+        sshd_port=$(grep -m 1 Port /etc/ssh/sshd_config | awk '/Port/ {print $2}')
+        info "SSHD Port: ${sshd_port}, 正在添加防火墙"
+        result=$(curl -sS -b "$cookie_file" 'http://127.0.0.1:8888/firewall?action=AddAcceptPort' \
+            -H 'Referer: http://127.0.0.1:8888/firewall' \
+            -H "X-Cookie-Token: $cookie_token" \
+            -H "X-Http-Token: $http_token" \
+            --data-raw "port=${sshd_port}&type=port&ps=SSH_PORT" \
+            --compressed \
+            --insecure)
+        
     fi
 
     clear_buffer
