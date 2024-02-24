@@ -342,7 +342,7 @@ install_acme() {
             error "证书申请失败，请检查原因...."
         fi
 
-    elif [[ "$dns" == "1" ]]; then
+    elif [[ "$dns" == "2" ]]; then
         read -r -p "请输入你的DPI_Id: " dpi_id
         read -r -p "请输入你的DPI_Key: " dpi_key
 
@@ -408,6 +408,110 @@ install_hysteria() {
     info "ip6tables -t nat -A PREROUTING -i eth0 -p udp --dport 20000:50000 -j DNAT --to-destination :443"
     echo ""
     echo ""
+}
+
+# 用于配置 Hysteria 端口跃迁 的 iptables 规则
+config_hysteria_iptables() {
+    # 获取所有接口名称，并将它们放入数组中
+    interfaces=($(ip -o link show | awk -F': ' '{print $2}' | awk '{print $1}'))
+
+    # 输出所有接口名称以及序号
+    echo "可用网口列表："
+    for ((i = 0; i < ${#interfaces[@]}; i++)); do
+        echo "$((i + 1)). ${interfaces[i]}"
+    done
+
+    # 获取接口数量
+    max_choice=${#interfaces[@]}
+
+    # 循环直到用户输入正确为止
+    while true; do
+        # 要求用户输入选择的接口序号
+        read -rp "请选择一个接口（输入序号）: " choice
+
+        # 检查用户输入是否为有效的整数，并且在有效范围内
+        if [[ "$choice" =~ ^[1-9][0-9]*$ && "$choice" -ge 1 && "$choice" -le "$max_choice" ]]; then
+            break
+        else
+            error "错误：请输入有效的接口序号。"
+        fi
+    done
+
+    # 用户选择的接口名称
+    selected_interface="${interfaces[choice - 1]}"
+    echo "您选择了接口：$selected_interface"
+
+    confirm=""
+    while true; do
+        read -rp "请输入UDP起始端口：" start_port
+        read -rp "请输入UDP终止端口：" end_port
+
+        echo "UDP端口跃迁范围: ${start_port} - ${end_port}"
+        read -rp "是否使用该范围的端口(y/n): " confirm
+
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            echo "用户确认使用该范围的端口。"
+            break
+        elif [[ "$confirm" =~ ^[Nn]$ ]]; then
+            echo "用户取消使用该范围的端口。"
+            break
+        else
+            echo "错误：请输入 'y' 或 'n'。"
+        fi
+    done
+
+    if [[ "$confirm" == "n" ]]; then
+        return
+    fi
+
+    if [[ ! -f "/opt/script" ]]; then
+        mkdir "/opt/script"
+        echo "该目录用于存放开机自动执行的脚本" >>"/opt/script/README"
+    fi
+
+    if [[ ! -f "/etc/hysteria/config.yaml" ]]; then
+        error "错误： 未发现Hyseteria的配置文件！！！ 请检查Hysteria是否正确安装"
+        return
+    fi
+
+    hysteria_port=$(grep 'listen:' /etc/hysteria/config.yaml | awk -F': ' '{print $2}' | cut -d':' -f2)
+
+    echo "#!/usr/bin/env bash" >>"/opt/script/set_iptables.sh"
+    echo "iptables -t nat -A PREROUTING -i ${selected_interface} -p udp --dport ${start_port}:${end_port} -j DNAT --to-destination :${hysteria_port}" >>"/opt/script/set_iptables.sh"
+
+    # 是否支持ipv6访问
+    
+    # 检查 ping6 命令的退出状态
+    if ! ping6 -c 1 ipv6.google.com >/dev/null 2>&1; then
+        echo "ip6tables -t nat -A PREROUTING -i ${selected_interface} -p udp --dport ${start_port}:${end_port} -j DNAT --to-destination :${hysteria_port}" >>"/opt/script/set_iptables.sh"
+    else
+        info "您的网络不支持IPV6"
+    fi
+    
+    chmod +x /opt/script/set_iptables.sh
+
+    info "设置开机启动项"
+    cat >>/etc/systemd/system/hy-iptables.service <<EOF
+[Unit]
+Description=Set iptables for hysteria
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/script/set_iptables.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+
+    systemctl daemon-reload
+    systemctl enable hy-iptables.service
+    
+    # 在设置完成后，立即执行脚本，完成iptables的设置
+    ./opt/script/set_iptables.sh
+
 }
 
 install_baota_v8() {
@@ -718,7 +822,7 @@ install_baota() {
             --data-raw "port=${sshd_port}&type=port&ps=SSH_PORT" \
             --compressed \
             --insecure)
-        
+
     fi
 
     clear_buffer
@@ -928,6 +1032,7 @@ fi
 if $IS_INSTALL_HYSTERIA; then
     install_acme
     install_hysteria
+    config_hysteria_iptables
 fi
 
 # show result
