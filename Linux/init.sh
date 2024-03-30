@@ -482,7 +482,7 @@ config_hysteria_iptables() {
     # 是否支持ipv6访问
     
     # 检查 ping6 命令的退出状态
-    if ! ping -c 1 ipv6.google.com >/dev/null 2>&1; then
+    if ping -c 1 ipv6.google.com >/dev/null 2>&1; then
         echo "ip6tables -t nat -A PREROUTING -i ${selected_interface} -p udp --dport ${start_port}:${end_port} -j DNAT --to-destination :${hysteria_port}" >>"/opt/script/set_iptables.sh"
     else
         info "您的网络不支持IPV6"
