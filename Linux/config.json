@@ -1,0 +1,304 @@
+{
+    "log": {
+        "disabled": false,
+        "level": "info",
+        "output": "/var/log/singbox/box.log",
+        "timestamp": true
+    },
+    "dns": {
+        "servers": [
+            {
+                "tag": "dns_resolver",
+                "address": "8.8.8.8",
+                "strategy": "ipv4_only",
+                "detour": "direct"
+            },
+            {
+                "tag": "block",
+                "address": "rcode://success"
+            }
+        ],
+        "rules": [
+            {
+                "inbound": [
+                    "reality",
+                    "hy"
+                ],
+                "server": "dns_resolver"
+            }
+        ],
+        "reverse_mapping": false,
+        "disable_cache": false,
+        "disable_expire": false,
+        "strategy": "ipv4_only",
+        "independent_cache": true,
+        "final": "dns_resolver"
+    },
+    "experimental": {
+        "cache_file": {
+            "enabled": true,
+            "path": "cache.db",
+            "store_fakeip": false
+        }
+    },
+    "inbounds": [
+        {
+            "tag": "reality",
+            "type": "vless",
+            "listen": "::",
+            "listen_port": CUSTOM_REALITY_PORT,
+            "users": [
+                {
+                    "uuid": "CUSTOM_UUID",
+                    "flow": "xtls-rprx-vision"
+                }
+            ],
+            "tls": {
+                "enabled": true,
+                "server_name": "music.apple.com",
+                "reality": {
+                    "enabled": true,
+                    "handshake": {
+                        "server": "music.apple.com",
+                        "server_port": 443
+                    },
+                    "private_key": "CUSTOM_PRIVATE_KEY",
+                    "short_id": [
+                        "CUSTOM_SHORT_ID"
+                    ]
+                }
+            }
+        },
+        {
+            "tag": "hy",
+            "type": "hysteria2",
+            "listen": "::",
+            "listen_port": CUSTOM_HY2_PORT,
+            "up_mbps": 800,
+            "down_mbps": 800,
+            "users": [
+                {
+                    "password": "CUSTOM_HY2_PASSWORD",
+                }
+            ],
+            "tls": {
+                "enabled": true,
+                "alpn": [
+                    "h3"
+                ],
+                "certificate_path": "CUSTOM_HY2_CERT",
+                "key_path": "CUSTOM_HY2_KEY"
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "type": "socks",
+            "tag": "socks-out",
+            "server": "127.0.0.1",
+            "server_port": 20003,
+            "version": "5"
+        },
+        {
+            "type": "direct",
+            "tag": "direct",
+            "domain_strategy": "prefer_ipv4",
+            "fallback_delay": "300ms"
+        },
+        {
+            "type": "direct",
+            "tag": "IPv4",
+            "domain_strategy": "ipv4_only"
+        },
+        {
+            "type": "block",
+            "tag": "block"
+        },
+        {
+            "type": "dns",
+            "tag": "dns-out"
+        }
+    ],
+    "route": {
+        "final": "socks-out",
+        "rules": [
+            {
+                "protocol": "dns",
+                "outbound": "dns-out"
+            },
+            {
+                "ip_cidr": [
+                    "8.8.8.8/32",
+                    "8.8.4.4/32",
+                    "1.1.1.1/32"
+                ],
+                "outbound": "direct"
+            },
+            {
+                "ip_is_private": true,
+                "outbound": "block"
+            },
+            {
+                "rule_set": "geoip-cloudflare",
+                "outbound": "direct"
+            },
+            {
+                "rule_set": "telegram-EU",
+                "outbound": "socks-out"
+            },
+            {
+                "type": "logical",
+                "mode": "or",
+                "rules": [
+                    {
+                        "rule_set": "geoip-google"
+                    },
+                    {
+                        "rule_set": "geosite-google-registry-tld"
+                    },
+                    {
+                        "rule_set": "geosite-google-registry"
+                    },
+                    {
+                        "rule_set": "geosite-google-scholar"
+                    },
+                    {
+                        "rule_set": "geosite-trust-services"
+                    },
+                    {
+                        "rule_set": "geosite-google"
+                    },
+                    {
+                        "rule_set": "geosite-googlefcm"
+                    },
+                    {
+                        "rule_set": "geosite-youtube"
+                    },
+                    {
+                        "rule_set": "geosite-github"
+                    },
+                    {
+                        "rule_set": "geosite-microsoft-dev"
+                    },
+                    {
+                        "rule_set": "geosite-microsoft-pki"
+                    },
+                    {
+                        "rule_set": "geosite-microsoft"
+                    },
+                    {
+                        "rule_set": "geoip-telegram"
+                    }
+                ],
+                "outbound": "direct"
+            }
+        ],
+        "rule_set": [
+            {
+                "tag": "geoip-cloudflare",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://github.com/Loyalsoldier/geoip/raw/release/srs/cloudflare.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geoip-google",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://github.com/Loyalsoldier/geoip/raw/release/srs/google.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-google-registry-tld",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-registry-tld.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-google-registry",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-registry.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-google-scholar",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-scholar.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-trust-services",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-trust-services.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-google",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-googlefcm",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-googlefcm.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-youtube",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-github",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-github.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-microsoft-dev",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft-dev.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-microsoft-pki",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft-pki.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geosite-microsoft",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft.srs",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "telegram-EU",
+                "type": "remote",
+                "format": "source",
+                "url": "https://raw.githubusercontent.com/FlyCrash/PublicFile/main/proxy/singBox/tg/telegram_eu",
+                "download_detour": "direct"
+            },
+            {
+                "tag": "geoip-telegram",
+                "type": "remote",
+                "format": "binary",
+                "url": "https://github.com/Loyalsoldier/geoip/raw/release/srs/telegram.srs",
+                "download_detour": "direct"
+            }
+        ]
+    }
+}
