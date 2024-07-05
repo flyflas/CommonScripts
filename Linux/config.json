@@ -78,7 +78,7 @@
             "down_mbps": 800,
             "users": [
                 {
-                    "password": "CUSTOM_HY2_PASSWORD",
+                    "password": "CUSTOM_HY2_PASSWORD"
                 }
             ],
             "tls": {
