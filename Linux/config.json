@@ -93,13 +93,6 @@
     ],
     "outbounds": [
         {
-            "type": "socks",
-            "tag": "socks-out",
-            "server": "127.0.0.1",
-            "server_port": 20003,
-            "version": "5"
-        },
-        {
             "type": "direct",
             "tag": "direct",
             "domain_strategy": "prefer_ipv4",
@@ -120,7 +113,7 @@
         }
     ],
     "route": {
-        "final": "socks-out",
+        "final": "direct",
         "rules": [
             {
                 "protocol": "dns",
@@ -137,168 +130,9 @@
             {
                 "ip_is_private": true,
                 "outbound": "block"
-            },
-            {
-                "rule_set": "geoip-cloudflare",
-                "outbound": "direct"
-            },
-            {
-                "rule_set": "telegram-EU",
-                "outbound": "socks-out"
-            },
-            {
-                "type": "logical",
-                "mode": "or",
-                "rules": [
-                    {
-                        "rule_set": "geoip-google"
-                    },
-                    {
-                        "rule_set": "geosite-google-registry-tld"
-                    },
-                    {
-                        "rule_set": "geosite-google-registry"
-                    },
-                    {
-                        "rule_set": "geosite-google-scholar"
-                    },
-                    {
-                        "rule_set": "geosite-trust-services"
-                    },
-                    {
-                        "rule_set": "geosite-google"
-                    },
-                    {
-                        "rule_set": "geosite-googlefcm"
-                    },
-                    {
-                        "rule_set": "geosite-youtube"
-                    },
-                    {
-                        "rule_set": "geosite-github"
-                    },
-                    {
-                        "rule_set": "geosite-microsoft-dev"
-                    },
-                    {
-                        "rule_set": "geosite-microsoft-pki"
-                    },
-                    {
-                        "rule_set": "geosite-microsoft"
-                    },
-                    {
-                        "rule_set": "geoip-telegram"
-                    }
-                ],
-                "outbound": "direct"
             }
         ],
         "rule_set": [
-            {
-                "tag": "geoip-cloudflare",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://github.com/Loyalsoldier/geoip/raw/release/srs/cloudflare.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geoip-google",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://github.com/Loyalsoldier/geoip/raw/release/srs/google.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-google-registry-tld",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-registry-tld.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-google-registry",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-registry.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-google-scholar",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-scholar.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-trust-services",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-trust-services.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-google",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-googlefcm",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-googlefcm.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-youtube",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-github",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-github.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-microsoft-dev",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft-dev.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-microsoft-pki",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft-pki.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-microsoft",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "telegram-EU",
-                "type": "remote",
-                "format": "source",
-                "url": "https://raw.githubusercontent.com/FlyCrash/PublicFile/main/proxy/singBox/tg/telegram_eu",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geoip-telegram",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://github.com/Loyalsoldier/geoip/raw/release/srs/telegram.srs",
-                "download_detour": "direct"
-            }
         ]
     }
 }
