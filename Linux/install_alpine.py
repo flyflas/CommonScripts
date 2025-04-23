@@ -217,7 +217,8 @@ def increase_swap(size="1G"):
             f"chmod 0600 {swap_file}",
             f"mkswap {swap_file}",
             f"swapon {swap_file}",
-            f"echo '{swap_file} none swap defaults 0 0' >> /etc/fstab"
+            f"echo '{swap_file} none swap defaults 0 0' >> /etc/fstab",
+            f"rc-update add swap"
         ]
 
         for cmd in cmds:
