@@ -12,6 +12,9 @@ readonly LOG_FILE="${LOG_FILE:-/tmp/install.log}"
 readonly UI_LOG_FILE="${UI_LOG_FILE:-/tmp/install.ui.log}"
 readonly SELECTION_FILE="${SELECTION_FILE:-/tmp/init.selection}"
 readonly SCRIPT_MARK="# === AUTO CONFIGURED BY INIT.SH ==="
+readonly LSD_ALIAS_MARK="# === LSD ALIASES BY INIT.SH ==="
+readonly LSD_CONFIG_DATE_LINE='date: "+%Y/%m/%d %H:%M:%S"'
+readonly TARGET_TIMEZONE="Asia/Shanghai"
 
 PKG_UPDATED=0
 LIVE_OUTPUT=0
@@ -76,6 +79,275 @@ backup_file() {
   run_cmd cp "$file" "${file}.bak.$(date +%Y%m%d%H%M%S)"
 }
 
+select_shell_rc_file() {
+  local home_dir="$1"
+  local shell_path="${2:-}"
+  local candidate
+
+  case "$shell_path" in
+    *zsh*)
+      printf '%s/.zshrc' "$home_dir"
+      return 0
+      ;;
+    *bash*)
+      printf '%s/.bashrc' "$home_dir"
+      return 0
+      ;;
+    *fish*)
+      printf '%s/.config/fish/config.fish' "$home_dir"
+      return 0
+      ;;
+  esac
+
+  for candidate in "$home_dir/.zshrc" "$home_dir/.bashrc" "$home_dir/.profile"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  printf '%s/.profile' "$home_dir"
+}
+
+resolve_lsd_target_context() {
+  local target_user="${SUDO_USER:-}"
+  local passwd_entry
+  local target_home="${HOME:-/root}"
+  local target_shell="${SHELL:-}"
+  local target_uid target_gid
+
+  if [[ -z "$target_user" || "$target_user" == "root" ]]; then
+    if [[ -n "${USER:-}" && "${USER:-}" != "root" ]]; then
+      target_user="$USER"
+    else
+      target_user="root"
+    fi
+  fi
+
+  target_uid="$(id -u "$target_user" 2>/dev/null || id -u)"
+  target_gid="$(id -g "$target_user" 2>/dev/null || id -g)"
+
+  if passwd_entry="$(getent passwd "$target_user" 2>/dev/null)"; then
+    target_home="$(printf '%s' "$passwd_entry" | awk -F: '{print $6}')"
+    target_shell="$(printf '%s' "$passwd_entry" | awk -F: '{print $7}')"
+    target_uid="$(printf '%s' "$passwd_entry" | awk -F: '{print $3}')"
+    target_gid="$(printf '%s' "$passwd_entry" | awk -F: '{print $4}')"
+  fi
+
+  [[ -n "$target_home" ]] || target_home="${HOME:-/root}"
+  [[ -n "$target_shell" ]] || target_shell="${SHELL:-}"
+
+  printf '%s\t%s\t%s\t%s\t%s\n' "$target_user" "$target_home" "$target_shell" "$target_uid" "$target_gid"
+}
+
+chown_lsd_target_path() {
+  local target_uid="$1"
+  local target_gid="$2"
+  local path="$3"
+
+  [[ "$target_uid" == "0" && "$target_gid" == "0" ]] && return 0
+  [[ -e "$path" || -L "$path" ]] || return 0
+  run_cmd chown "$target_uid:$target_gid" "$path"
+}
+
+configure_lsd_aliases() {
+  local home_dir="$1"
+  local shell_path="${2:-}"
+  local target_uid="${3:-0}"
+  local target_gid="${4:-0}"
+  local rc_file
+  local alias_style="shell"
+  local rc_dir
+
+  rc_file="$(select_shell_rc_file "$home_dir" "$shell_path")" || return 1
+  rc_dir="$(dirname "$rc_file")"
+
+  case "$rc_file" in
+    */config.fish)
+      alias_style="fish"
+      ;;
+  esac
+
+  [[ -d "$rc_dir" ]] || run_cmd mkdir -p "$rc_dir" || return 1
+  [[ -f "$rc_file" ]] || run_cmd touch "$rc_file" || return 1
+
+  if grep -Fq "$LSD_ALIAS_MARK" "$rc_file" >>"$LOG_FILE" 2>&1; then
+    chown_lsd_target_path "$target_uid" "$target_gid" "$rc_file" || return 1
+    if [[ "$rc_dir" == "$home_dir/.config/"* ]]; then
+      chown_lsd_target_path "$target_uid" "$target_gid" "$home_dir/.config" || true
+      chown_lsd_target_path "$target_uid" "$target_gid" "$rc_dir" || true
+    fi
+    log "configure_lsd_aliases: marker exists, skip"
+    return 0
+  fi
+
+  backup_file "$rc_file" || return 1
+
+  {
+    printf '\n%s\n' "$LSD_ALIAS_MARK"
+    if [[ "$alias_style" == "fish" ]]; then
+      printf "alias ls 'lsd'\n"
+      printf "alias ll 'lsd -lh'\n"
+      printf "alias la 'lsd -lah'\n"
+      printf "alias l 'lsd -lAh'\n"
+    else
+      printf 'alias ls="lsd"\n'
+      printf 'alias ll="lsd -lh"\n'
+      printf 'alias la="lsd -lah"\n'
+      printf 'alias l="lsd -lAh"\n'
+    fi
+  } >>"$rc_file"
+
+  chown_lsd_target_path "$target_uid" "$target_gid" "$rc_file" || return 1
+  if [[ "$rc_dir" == "$home_dir/.config/"* ]]; then
+    chown_lsd_target_path "$target_uid" "$target_gid" "$home_dir/.config" || true
+    chown_lsd_target_path "$target_uid" "$target_gid" "$rc_dir" || true
+  fi
+
+  log "configure_lsd_aliases done: $rc_file"
+}
+
+configure_lsd_config() {
+  local home_dir="$1"
+  local target_uid="${2:-0}"
+  local target_gid="${3:-0}"
+  local config_dir="$home_dir/.config/lsd"
+  local config_file="$config_dir/config.yaml"
+  local tmp_file
+
+  [[ -d "$config_dir" ]] || run_cmd mkdir -p "$config_dir" || return 1
+
+  tmp_file="$(mktemp "${config_file}.XXXXXX")" || return 1
+  if [[ -f "$config_file" ]]; then
+    backup_file "$config_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+    awk -v date_line="$LSD_CONFIG_DATE_LINE" '
+      BEGIN { seen = 0 }
+      /^date:[[:space:]]*/ {
+        if (!seen) {
+          print date_line
+          seen = 1
+        }
+        next
+      }
+      { print }
+      END {
+        if (!seen) {
+          print date_line
+        }
+      }
+    ' "$config_file" >"$tmp_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+  else
+    printf '%s\n' "$LSD_CONFIG_DATE_LINE" >"$tmp_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+  fi
+
+  if [[ -L "$config_file" ]]; then
+    run_cmd cp "$tmp_file" "$config_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+    run_cmd rm -f "$tmp_file" || true
+  else
+    run_cmd mv "$tmp_file" "$config_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+  fi
+
+  chown_lsd_target_path "$target_uid" "$target_gid" "$home_dir/.config" || true
+  chown_lsd_target_path "$target_uid" "$target_gid" "$config_dir" || return 1
+  chown_lsd_target_path "$target_uid" "$target_gid" "$config_file" || return 1
+  log "configure_lsd_config done: $config_file"
+}
+
+configure_lsd_post_install() {
+  local target_user target_home target_shell target_uid target_gid
+
+  IFS=$'\t' read -r target_user target_home target_shell target_uid target_gid < <(resolve_lsd_target_context) || return 1
+  configure_lsd_aliases "$target_home" "$target_shell" "$target_uid" "$target_gid" || return 1
+  configure_lsd_config "$target_home" "$target_uid" "$target_gid" || return 1
+}
+
+
+# ============================
+# Locale helpers
+# ============================
+normalize_locale_name() {
+  local value="${1:-}"
+  value="${value%%@*}"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    *.utf8) value="${value%.utf8}.utf-8" ;;
+  esac
+  printf '%s' "$value"
+}
+
+is_zh_cn_utf8_locale() {
+  local value
+  value="$(normalize_locale_name "${1:-}")"
+  [[ "$value" == "zh_cn.utf-8" ]]
+}
+
+current_locale_effective_value() {
+  if [[ -n "${LC_ALL:-}" ]]; then
+    printf '%s' "$LC_ALL"
+  elif [[ -n "${LC_CTYPE:-}" ]]; then
+    printf '%s' "$LC_CTYPE"
+  else
+    printf '%s' "${LANG:-}"
+  fi
+}
+
+current_locale_charmap() {
+  locale charmap 2>/dev/null || true
+}
+
+current_timezone_value() {
+  command_exists timedatectl || return 1
+  timedatectl show -p Timezone --value 2>/dev/null
+}
+
+is_current_terminal_zh_cn_utf8() {
+  local effective charmap
+  effective="$(current_locale_effective_value)"
+  charmap="$(current_locale_charmap)"
+  charmap="$(printf '%s' "$charmap" | tr '[:lower:]' '[:upper:]')"
+
+  is_zh_cn_utf8_locale "$effective" && [[ "$charmap" == "UTF-8" ]]
+}
+
+locale_status_text() {
+  local effective charmap
+  effective="$(current_locale_effective_value)"
+  charmap="$(current_locale_charmap)"
+
+  printf 'Current effective locale: %s\n' "${effective:-unset}"
+  printf 'Current locale charmap : %s\n' "${charmap:-unknown}"
+  printf 'LC_ALL                 : %s\n' "${LC_ALL:-unset}"
+  printf 'LC_CTYPE               : %s\n' "${LC_CTYPE:-unset}"
+  printf 'LANG                   : %s\n' "${LANG:-unset}"
+}
+
+locale_status_dialog_text() {
+  local effective charmap
+  effective="$(current_locale_effective_value)"
+  charmap="$(current_locale_charmap)"
+
+  printf 'Current effective locale: %s\\n' "${effective:-unset}"
+  printf 'Current locale charmap : %s\\n' "${charmap:-unknown}"
+  printf 'LC_ALL                 : %s\\n' "${LC_ALL:-unset}"
+  printf 'LC_CTYPE               : %s\\n' "${LC_CTYPE:-unset}"
+  printf 'LANG                   : %s' "${LANG:-unset}"
+}
+
 
 # ============================
 # Debian package management
@@ -124,6 +396,23 @@ install_dependencies() {
   install_packages curl wget git ca-certificates dialog tar gzip xz-utils unzip
 }
 
+ensure_reinstall_download_tools() {
+  if command_exists curl && command_exists wget; then
+    return 0
+  fi
+
+  log "System reinstall requires curl and wget; installing missing download tools"
+  install_packages curl wget || return 1
+
+  command_exists curl && command_exists wget
+}
+
+prepare_reinstall_certificates() {
+  log "System reinstall: refreshing apt metadata and reinstalling ca-certificates"
+  run_cmd apt update || return 1
+  run_cmd env DEBIAN_FRONTEND=noninteractive apt install -y --reinstall ca-certificates || return 1
+}
+
 
 # ============================
 # dialog (TUI)
@@ -149,6 +438,7 @@ ensure_terminal_size() {
     dialog_cmd \
       --backtitle "$UI_TITLE" \
       --title "Terminal Too Small" \
+      --ok-label "OK" \
       --msgbox "Current terminal: ${rows}x${cols}\nMinimum required: 22x82\n\nPlease enlarge the terminal and retry." 10 70
     return 1
   fi
@@ -160,14 +450,17 @@ map_selection_token() {
     SSHD|setup_sshd) echo "setup_sshd" ;;
     BBR|enable_bbr) echo "enable_bbr" ;;
     Swap|config_swap) echo "config_swap=1G" ;;
+    TimeZone|ShanghaiTimezone|config_timezone_asia_shanghai) echo "config_timezone_asia_shanghai" ;;
     1Panel|install_1panel) echo "install_1panel" ;;
     Btop|install_btop) echo "install_btop" ;;
     Docker|install_docker) echo "install_docker" ;;
+    Lsd|install_lsd) echo "install_lsd" ;;
     Ncdu|install_ncdu) echo "install_ncdu" ;;
     Neovim|install_neovim) echo "install_neovim" ;;
     NextTrace|install_nexttrace) echo "install_nexttrace" ;;
     Singbox|install_singbox) echo "install_singbox" ;;
     SpeedTest|install_speedtest) echo "install_speedtest" ;;
+    Yazi|install_yazi) echo "install_yazi" ;;
     Zsh|install_zsh) echo "install_zsh" ;;
     Debian12|dd_debian12) echo "dd_debian12" ;;
     *) echo "$token" ;;
@@ -216,10 +509,12 @@ menu_system_settings() {
       --title "System Settings" \
       --ok-label "Confirm" \
       --cancel-label "Back" \
-      --menu "Select one item to configure:" 16 70 5 \
+      --menu "Select one item to configure:" 17 70 7 \
       SSHD "Configure SSH key login" \
       BBR "Enable BBR congestion control" \
       Swap "Configure swap space" \
+      TimeZone "Set timezone to Asia/Shanghai" \
+      LANG "Set LANG=zh_CN.UTF-8" \
       Shell "Configure shell profile")" || status=$?
 
     if [[ "$status" -ne 0 || -z "$choice" ]]; then
@@ -238,7 +533,7 @@ menu_system_settings() {
           dialog_cmd \
             --backtitle "$UI_TITLE" \
             --title "BBR Status" \
-            --ok-label "Cancel" \
+            --ok-label "OK" \
             --msgbox "Current BBR status: Already Enabled\n\nNo further configuration is required." 8 45
         else
           if dialog_cmd \
@@ -290,6 +585,69 @@ menu_system_settings() {
           config_swap "$val"
         fi
         ;;
+      TimeZone)
+        local timezone_current timezone_prompt
+        if timezone_current="$(current_timezone_value)"; then
+          timezone_prompt="Current timezone: ${timezone_current:-unknown}\nTarget timezone : $TARGET_TIMEZONE\n\nDo you want to set the system timezone to $TARGET_TIMEZONE?"
+        else
+          timezone_prompt="Current timezone: unavailable (timedatectl not found or not usable)\nTarget timezone : $TARGET_TIMEZONE\n\nDo you want to set the system timezone to $TARGET_TIMEZONE?"
+        fi
+
+        if dialog_cmd \
+          --backtitle "$UI_TITLE" \
+          --title "Set System Timezone" \
+          --yes-label "Confirm" \
+          --no-label "Cancel" \
+          --yesno "$timezone_prompt" 9 70; then
+          dialog_cmd --infobox "Configuring system timezone...\nPlease wait." 5 45
+          clear
+          if config_timezone_asia_shanghai; then
+            dialog_cmd \
+              --backtitle "$UI_TITLE" \
+              --title "Timezone Configured" \
+              --ok-label "OK" \
+              --msgbox "System timezone has been set to $TARGET_TIMEZONE." 7 58
+          else
+            dialog_cmd \
+              --backtitle "$UI_TITLE" \
+              --title "Timezone Configuration Failed" \
+              --ok-label "OK" \
+              --msgbox "Failed to set system timezone to $TARGET_TIMEZONE.\n\nSee log: $LOG_FILE" 8 64
+          fi
+        fi
+        ;;
+      LANG)
+        local locale_msg lang_prompt
+        locale_msg="$(locale_status_dialog_text)"
+        if is_current_terminal_zh_cn_utf8; then
+          lang_prompt="Current terminal is already using zh_CN.UTF-8.\n\n${locale_msg}\n\nThis will ensure the system default LANG is set to zh_CN.UTF-8.\n\nDo you want to continue?"
+        else
+          lang_prompt="Current terminal is not using zh_CN.UTF-8.\n\n${locale_msg}\n\nThis will set the system default LANG=zh_CN.UTF-8.\nIt will not change LC_ALL or LC_CTYPE in the current terminal.\nYou may need to reconnect or log in again for the new default to apply.\n\nDo you want to continue?"
+        fi
+
+        if dialog_cmd \
+          --backtitle "$UI_TITLE" \
+          --title "Set System Language" \
+          --yes-label "Confirm" \
+          --no-label "Cancel" \
+          --yesno "$lang_prompt" 18 76; then
+          dialog_cmd --infobox "Configuring system language...\nPlease wait." 5 40
+          clear
+          if config_lang_zh_utf8; then
+            dialog_cmd \
+              --backtitle "$UI_TITLE" \
+              --title "Language Configured" \
+              --ok-label "OK" \
+              --msgbox "System LANG has been set to zh_CN.UTF-8.\n\nIf LC_ALL or LC_CTYPE is set in your shell, SSH client, terminal profile, or service environment, it may still override LANG until removed or changed.\n\nReconnect or log in again for the new default to apply." 12 72
+          else
+            dialog_cmd \
+              --backtitle "$UI_TITLE" \
+              --title "Language Configuration Failed" \
+              --ok-label "OK" \
+              --msgbox "Failed to configure LANG=zh_CN.UTF-8.\n\nSee log: $LOG_FILE" 8 64
+          fi
+        fi
+        ;;
       Shell)
         dialog_cmd --infobox "Configuring shell profile...\nPlease wait." 5 40
         clear
@@ -303,32 +661,38 @@ menu_tool_installation() {
   local d_1panel
   local d_btop
   local d_docker
+  local d_lsd
   local d_ncdu
   local d_neovim
   local d_nexttrace
   local d_singbox
   local d_speedtest
+  local d_yazi
   local d_zsh
 
   d_1panel=$(printf "%-25s" "Server control panel")
   d_btop=$(printf "%-25s" "Resource monitor")
   d_docker=$(printf "%-25s" "Container engine")
+  d_lsd=$(printf "%-25s" "Modern ls replacement")
   d_ncdu=$(printf "%-25s" "Disk usage analyzer")
   d_neovim=$(printf "%-25s" "Text editor (LazyVim)")
   d_nexttrace=$(printf "%-25s" "Visual route tracker")
   d_singbox=$(printf "%-25s" "Universal proxy platform")
   d_speedtest=$(printf "%-25s" "Network bandwidth tester")
+  d_yazi=$(printf "%-25s" "Terminal file manager")
   d_zsh=$(printf "%-25s" "Shell env (oh-my-zsh)")
 
   # Probe installed status and append [OK] or equivalent padding for uniform highlighting
   if systemctl is-active 1panel.service >/dev/null 2>&1; then d_1panel+=" [OK]"; else d_1panel+="     "; fi
   if command_exists btop; then d_btop+=" [OK]"; else d_btop+="     "; fi
   if command_exists docker; then d_docker+=" [OK]"; else d_docker+="     "; fi
+  if command_exists lsd; then d_lsd+=" [OK]"; else d_lsd+="     "; fi
   if command_exists ncdu; then d_ncdu+=" [OK]"; else d_ncdu+="     "; fi
   if command_exists nvim; then d_neovim+=" [OK]"; else d_neovim+="     "; fi
   if command_exists nexttrace; then d_nexttrace+=" [OK]"; else d_nexttrace+="     "; fi
   if systemctl is-active sing-box.service >/dev/null 2>&1; then d_singbox+=" [OK]"; else d_singbox+="     "; fi
   if command_exists speedtest; then d_speedtest+=" [OK]"; else d_speedtest+="     "; fi
+  if command_exists yazi; then d_yazi+=" [OK]"; else d_yazi+="     "; fi
   if command_exists zsh; then d_zsh+=" [OK]"; else d_zsh+="     "; fi
 
   if collect_checklist \
@@ -337,11 +701,13 @@ menu_tool_installation() {
     1Panel "$d_1panel" OFF \
     Btop "$d_btop" OFF \
     Docker "$d_docker" OFF \
+    Lsd "$d_lsd" OFF \
     Ncdu "$d_ncdu" OFF \
     Neovim "$d_neovim" OFF \
     NextTrace "$d_nexttrace" OFF \
     Singbox "$d_singbox" OFF \
     SpeedTest "$d_speedtest" OFF \
+    Yazi "$d_yazi" OFF \
     Zsh "$d_zsh" OFF; then
     clear
     run_selected_tasks_with_progress "${CHECKLIST_SELECTIONS[@]}"
@@ -396,7 +762,15 @@ EOF
   rm -f "$temp_rc"
 
   if [[ "$danger_ok" -eq 0 ]]; then
-    
+    if ! ensure_reinstall_download_tools; then
+      dialog_cmd \
+        --backtitle "$UI_TITLE" \
+        --title "Dependency Installation Failed" \
+        --ok-label "OK" \
+        --msgbox "Failed to install required download tools: curl and wget.\n\nSystem reinstall cannot continue.\n\nSee log: $LOG_FILE" 10 68
+      return 1
+    fi
+
     local pwd pwd2 status_pwd status_pwd2
     while true; do
       status_pwd=0
@@ -405,6 +779,8 @@ EOF
         --insecure \
         --backtitle "$UI_TITLE" \
         --title "Root Password" \
+        --ok-label "Confirm" \
+        --cancel-label "Back" \
         --passwordbox "Set a root password for the new system:" 10 50)" || status_pwd=$?
 
       if [[ "$status_pwd" -ne 0 || -z "$pwd" ]]; then
@@ -417,6 +793,8 @@ EOF
         --insecure \
         --backtitle "$UI_TITLE" \
         --title "Confirm Root Password" \
+        --ok-label "Confirm" \
+        --cancel-label "Back" \
         --passwordbox "Please enter the password again to confirm:" 10 50)" || status_pwd2=$?
 
       if [[ "$status_pwd2" -ne 0 ]]; then
@@ -429,6 +807,7 @@ EOF
         dialog_cmd \
           --backtitle "$UI_TITLE" \
           --title "Password Mismatch" \
+          --ok-label "OK" \
           --msgbox "The two passwords do not match.\nPlease try again." 8 40
       fi
     done
@@ -439,7 +818,7 @@ EOF
     [[ "$choice" == "Alpine" ]] && task_name="dd_alpine"
     
     clear
-    run_selected_tasks_with_progress "${task_name}=${pwd}"
+    run_selected_tasks_with_progress --completion-reboot "${task_name}=${pwd}"
   fi
 }
 
@@ -535,14 +914,18 @@ task_title() {
     setup_sshd*) echo "Configure SSH" ;;
     enable_bbr*) echo "Enable BBR" ;;
     config_swap*) echo "Configure Swap" ;;
+    config_timezone_asia_shanghai*) echo "Set Timezone Asia/Shanghai" ;;
+    config_lang_zh_utf8*) echo "Configure LANG zh_CN.UTF-8" ;;
     install_1panel*) echo "Install 1Panel" ;;
     install_btop*) echo "Install btop" ;;
     install_docker*) echo "Install Docker" ;;
+    install_lsd*) echo "Install lsd" ;;
     install_ncdu*) echo "Install ncdu" ;;
     install_neovim*) echo "Install Neovim" ;;
     install_nexttrace*) echo "Install NextTrace" ;;
     install_singbox*) echo "Install Sing-box" ;;
     install_speedtest*) echo "Install SpeedTest" ;;
+    install_yazi*) echo "Install Yazi" ;;
     install_zsh*) echo "Install zsh" ;;
     install_base*) echo "Install Base Bundle" ;;
     dd_debian12*) echo "Reinstall Debian 12" ;;
@@ -583,8 +966,35 @@ build_gauge_args() {
   done
 }
 
+confirm_and_reboot() {
+  if dialog_cmd \
+    --backtitle "$UI_TITLE" \
+    --title "Confirm Reboot" \
+    --yes-label "Reboot" \
+    --no-label "Cancel" \
+    --yesno "Reboot the system now?" 7 44; then
+    if run_cmd systemctl reboot; then
+      return 0
+    fi
+    if run_cmd reboot; then
+      return 0
+    fi
+    dialog_cmd \
+      --backtitle "$UI_TITLE" \
+      --title "Reboot Failed" \
+      --ok-label "OK" \
+      --msgbox "Failed to reboot the system.\n\nTried: systemctl reboot\nThen: reboot\n\nSee log: $LOG_FILE" 10 64
+  fi
+}
+
 run_selected_tasks_with_progress() {
   init_log
+  local show_reboot=0
+  if [[ "${1:-}" == "--completion-reboot" ]]; then
+    show_reboot=1
+    shift
+  fi
+
   load_selected_tasks "$@"
 
   if [[ "${#SELECTED_TASKS[@]}" -eq 0 ]]; then
@@ -708,17 +1118,49 @@ run_selected_tasks_with_progress() {
   [[ "$failed" -gt 0 ]] && msg+="Failed tasks:$failed_list\n\n"
   msg+="Log file: $LOG_FILE"
 
-  if dialog_cmd \
-    --backtitle "$UI_TITLE" \
-    --title "Installation Complete" \
-    --yes-label "View Log" \
-    --no-label "Return" \
-    --yesno "$msg" 14 60; then
-    dialog_cmd \
-      --backtitle "$UI_TITLE" \
-      --title "Full Installation Log" \
-      --textbox "$LOG_FILE" 22 78
-  fi
+  while true; do
+    local action=0
+    if [[ "$show_reboot" -eq 1 ]]; then
+      dialog_cmd \
+        --backtitle "$UI_TITLE" \
+        --title "Installation Complete" \
+        --yes-label "View Log" \
+        --no-label "Reboot" \
+        --extra-button \
+        --extra-label "Return" \
+        --yesno "$msg" 14 60 || action=$?
+    else
+      dialog_cmd \
+        --backtitle "$UI_TITLE" \
+        --title "Installation Complete" \
+        --yes-label "View Log" \
+        --no-label "Return" \
+        --yesno "$msg" 14 60 || action=$?
+    fi
+
+    case "$action" in
+      0)
+        dialog_cmd \
+          --backtitle "$UI_TITLE" \
+          --title "Full Installation Log" \
+          --exit-label "Return" \
+          --textbox "$LOG_FILE" 22 78
+        ;;
+      1)
+        if [[ "$show_reboot" -eq 1 ]]; then
+          confirm_and_reboot
+        else
+          break
+        fi
+        ;;
+      3|255)
+        break
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
 
   rm -f "$rc_file"
   [[ "$failed" -eq 0 ]]
@@ -739,6 +1181,56 @@ install_btop() {
   require_root || return 1
   install_packages btop
   command_exists btop
+}
+
+install_lsd() {
+  require_root || return 1
+  install_packages curl ca-certificates || return 1
+
+  local arch deb_arch api_url release_json deb_url tmp_deb
+
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64)
+      deb_arch="amd64"
+      ;;
+    aarch64|arm64)
+      deb_arch="arm64"
+      ;;
+    *)
+      log "ERROR: unsupported architecture for lsd: $arch"
+      return 1
+      ;;
+  esac
+
+  api_url="https://api.github.com/repos/lsd-rs/lsd/releases/latest"
+  release_json="$(mktemp "/tmp/lsd-release-${deb_arch}.XXXXXX.json")" || return 1
+  run_cmd curl -fL --retry 3 --connect-timeout 10 "$api_url" -o "$release_json" || {
+    run_cmd rm -f "$release_json" || true
+    return 1
+  }
+  deb_url="$(sed -nE "s|.*\"browser_download_url\": \"([^\"]+_${deb_arch}\.deb)\".*|\1|p" "$release_json" | head -n 1)"
+  run_cmd rm -f "$release_json" || true
+
+  if [[ -z "$deb_url" ]]; then
+    log "ERROR: unable to find lsd ${deb_arch} .deb asset from latest release"
+    return 1
+  fi
+
+  tmp_deb="$(mktemp "/tmp/lsd-${deb_arch}.XXXXXX.deb")" || return 1
+  run_cmd curl -fL --retry 3 --connect-timeout 10 "$deb_url" -o "$tmp_deb" || {
+    run_cmd rm -f "$tmp_deb" || true
+    return 1
+  }
+  run_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp_deb" || {
+    run_cmd rm -f "$tmp_deb" || true
+    return 1
+  }
+  run_cmd rm -f "$tmp_deb" || true
+
+  command_exists lsd || return 1
+  configure_lsd_post_install || return 1
+  log "install_lsd done"
 }
 
 install_lazyvim() {
@@ -803,12 +1295,39 @@ install_nexttrace() {
   command_exists nexttrace
 }
 
+config_timezone_asia_shanghai() {
+  local actual
+
+  require_root || return 1
+
+  if ! command_exists timedatectl; then
+    log "ERROR: timedatectl not found; cannot set timezone to $TARGET_TIMEZONE"
+    printf 'ERROR: timedatectl not found; cannot set timezone to %s.\n' "$TARGET_TIMEZONE" >&2
+    return 1
+  fi
+
+  log "config_timezone_asia_shanghai: setting timezone to $TARGET_TIMEZONE"
+  if ! run_cmd timedatectl set-timezone "$TARGET_TIMEZONE"; then
+    log "ERROR: timedatectl set-timezone $TARGET_TIMEZONE failed"
+    printf 'ERROR: failed to set timezone to %s.\n' "$TARGET_TIMEZONE" >&2
+    return 1
+  fi
+
+  actual="$(timedatectl show -p Timezone --value 2>>"$LOG_FILE" || true)"
+  if [[ "$actual" != "$TARGET_TIMEZONE" ]]; then
+    log "ERROR: timezone verification failed; expected=$TARGET_TIMEZONE actual=${actual:-unset}"
+    printf 'ERROR: timezone verification failed; expected %s, got %s.\n' "$TARGET_TIMEZONE" "${actual:-unset}" >&2
+    return 1
+  fi
+
+  log "config_timezone_asia_shanghai done: timezone=$actual"
+  printf 'Timezone set to %s.\n' "$actual"
+}
+
 config_shell() {
   local home_dir="${HOME:-/root}"
   local shell_path="${SHELL:-}"
   local rc_file=""
-
-  run_cmd timedatectl set-timezone Asia/Shanghai || true
 
   if [[ "$shell_path" == *zsh* ]]; then
     rc_file="$home_dir/.zshrc"
@@ -852,7 +1371,75 @@ config_shell() {
 
   log "config_shell done: $rc_file"
   if [[ "${LIVE_OUTPUT:-0}" -eq 0 ]]; then
-    dialog_cmd --backtitle "$UI_TITLE" --title "Shell Configured" --msgbox "Shell profile has been successfully configured in $rc_file." 8 60
+    dialog_cmd --backtitle "$UI_TITLE" --title "Shell Configured" --ok-label "OK" --msgbox "Shell profile has been successfully configured in $rc_file." 8 60
+  fi
+}
+
+config_lang_zh_utf8() {
+  require_debian || return 1
+  require_root || return 1
+  install_packages locales || return 1
+
+  local locale_gen="/etc/locale.gen"
+  local default_locale="/etc/default/locale"
+  local locale_line="zh_CN.UTF-8 UTF-8"
+  local lang_line="LANG=zh_CN.UTF-8"
+
+  [[ -f "$locale_gen" ]] && backup_file "$locale_gen" || true
+  [[ -f "$default_locale" ]] && backup_file "$default_locale" || true
+
+  if grep -Eq '^[[:space:]]*#?[[:space:]]*zh_CN\.UTF-8[[:space:]]+UTF-8[[:space:]]*$' "$locale_gen" >>"$LOG_FILE" 2>&1; then
+    run_cmd sed -i -E 's|^[[:space:]]*#?[[:space:]]*(zh_CN\.UTF-8[[:space:]]+UTF-8)[[:space:]]*$|\1|' "$locale_gen" || return 1
+  else
+    ensure_line_in_file "$locale_gen" "$locale_line"
+  fi
+
+  run_cmd locale-gen zh_CN.UTF-8 || return 1
+  run_cmd update-locale LANG=zh_CN.UTF-8 || return 1
+
+  if [[ ! -f "$default_locale" ]]; then
+    log "ERROR: $default_locale was not created"
+    return 1
+  fi
+
+  if ! grep -Fxq "$lang_line" "$default_locale" >>"$LOG_FILE" 2>&1; then
+    log "ERROR: $default_locale does not contain $lang_line"
+    return 1
+  fi
+
+  log "locale status after config:"
+  locale_status_text | while IFS= read -r line; do
+    log "$line"
+  done
+  log "config_lang_zh_utf8 done"
+}
+
+confirm_cli_lang_change() {
+  [[ -t 0 && -t 1 ]] || return 0
+
+  printf '%s\n\n' "$(locale_status_text)"
+
+  if is_current_terminal_zh_cn_utf8; then
+    printf 'Current terminal is already using zh_CN.UTF-8.\n'
+    printf 'Apply system LANG=zh_CN.UTF-8 anyway? [y/N] '
+  else
+    printf 'Current terminal is not using zh_CN.UTF-8.\n'
+    printf 'This will set the system default LANG=zh_CN.UTF-8, but will not override current LC_ALL/LC_CTYPE.\n'
+    printf 'Reconnect or log in again for the new default to apply.\n'
+    printf 'Continue? [y/N] '
+  fi
+
+  local answer
+  read -r answer
+  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+}
+
+cli_config_lang_zh_utf8() {
+  confirm_cli_lang_change || return 1
+  config_lang_zh_utf8 || return 1
+
+  if ! is_current_terminal_zh_cn_utf8; then
+    printf 'System LANG has been set to zh_CN.UTF-8. Current terminal is still not using zh_CN.UTF-8; reconnect or log in again for the new default to apply.\n'
   fi
 }
 
@@ -934,7 +1521,7 @@ config_swap() {
 
   log "config_swap done: $swap_size"
   if [[ "${LIVE_OUTPUT:-0}" -eq 0 ]]; then
-    dialog_cmd --backtitle "$UI_TITLE" --title "Swap Configured" --msgbox "Swap space has been successfully configured to ${swap_size}." 8 40
+    dialog_cmd --backtitle "$UI_TITLE" --title "Swap Configured" --ok-label "OK" --msgbox "Swap space has been successfully configured to ${swap_size}." 8 40
   fi
 }
 
@@ -989,6 +1576,7 @@ setup_sshd() {
     dialog_cmd \
       --backtitle "$UI_TITLE" \
       --title "SSH Configuration Successful" \
+      --ok-label "OK" \
       --msgbox "SSH service has been configured successfully.\n\nImportant Information:\nSSH Port: ${port}\nPrivate Key: ${key_path}\n\nPlease save your private key securely before disconnecting!" 12 60
   fi
 }
@@ -1014,7 +1602,7 @@ enable_bbr() {
   run_cmd sysctl -p || return 1
   if check_bbr_enabled; then
     if [[ "${LIVE_OUTPUT:-0}" -eq 0 ]]; then
-      dialog_cmd --backtitle "$UI_TITLE" --title "BBR Enabled" --msgbox "BBR congestion control has been successfully enabled." 8 50
+      dialog_cmd --backtitle "$UI_TITLE" --title "BBR Enabled" --ok-label "OK" --msgbox "BBR congestion control has been successfully enabled." 8 50
     fi
     return 0
   fi
@@ -1024,6 +1612,51 @@ install_ncdu() {
   require_root || return 1
   install_packages ncdu
   command_exists ncdu
+}
+
+install_yazi() {
+  require_root || return 1
+  install_packages curl ca-certificates || return 1
+
+  local arch yazi_arch deb_url tmp_deb dep
+  local -a optional_deps=(ffmpeg 7zip jq poppler-utils fd-find ripgrep fzf zoxide imagemagick)
+
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64)
+      yazi_arch="x86_64"
+      ;;
+    aarch64|arm64)
+      yazi_arch="aarch64"
+      ;;
+    *)
+      log "ERROR: unsupported architecture for yazi: $arch"
+      return 1
+      ;;
+  esac
+
+  for dep in "${optional_deps[@]}"; do
+    install_packages "$dep" || log "WARN: failed to install optional yazi dependency: $dep"
+  done
+
+  deb_url="https://github.com/sxyazi/yazi/releases/latest/download/yazi-${yazi_arch}-unknown-linux-gnu.deb"
+  tmp_deb="$(mktemp "/tmp/yazi-${yazi_arch}.XXXXXX.deb")" || return 1
+
+  run_cmd curl -fL --retry 3 --connect-timeout 10 "$deb_url" -o "$tmp_deb" || {
+    run_cmd rm -f "$tmp_deb" || true
+    return 1
+  }
+  run_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp_deb" || {
+    run_cmd rm -f "$tmp_deb" || true
+    return 1
+  }
+  run_cmd rm -f "$tmp_deb" || true
+
+  command_exists yazi || return 1
+  if ! command_exists ya; then
+    log "WARN: yazi installed but ya command not found"
+  fi
+  log "install_yazi done"
 }
 
 install_singbox() {
@@ -1085,6 +1718,7 @@ install_1panel() {
     dialog_cmd \
       --backtitle "$UI_TITLE" \
       --title "1Panel Installation Successful" \
+      --ok-label "OK" \
       --msgbox "1Panel has been successfully installed.\n\nPanel URL: ${panel_url}\nUsername: ${panel_user}\nPassword: ${panel_pass}\n\nPlease save these credentials securely!" 12 70
   fi
 }
@@ -1099,6 +1733,7 @@ dd_debian12() {
 
   local script_url="https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh"
   log "dd_debian12: preparing to install Debian 12"
+  prepare_reinstall_certificates || return 1
   run_bash "bash <(curl -sL $script_url || wget -qO- $script_url) debian 12 --password '$pwd'" || return 1
 }
 
@@ -1112,6 +1747,7 @@ dd_debian13() {
 
   local script_url="https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh"
   log "dd_debian13: preparing to install Debian 13"
+  prepare_reinstall_certificates || return 1
   run_bash "bash <(curl -sL $script_url || wget -qO- $script_url) debian 13 --password '$pwd'" || return 1
 }
 
@@ -1125,6 +1761,7 @@ dd_alpine() {
 
   local script_url="https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh"
   log "dd_alpine: preparing to install Alpine"
+  prepare_reinstall_certificates || return 1
   run_bash "bash <(curl -sL $script_url || wget -qO- $script_url) alpine 3.21 --password '$pwd'" || return 1
 }
 
@@ -1135,6 +1772,7 @@ install_base() {
   install_nexttrace || return 1
   config_swap "1G" || return 1
   install_zsh || return 1
+  config_timezone_asia_shanghai || log "WARN: failed to configure timezone, continue base installation"
   config_shell || return 1
   setup_sshd || return 1
   enable_bbr || return 1
@@ -1156,6 +1794,8 @@ System settings:
   bbr                  Enable BBR
   swap                 Configure 1G swap
   swap=4G              Configure custom swap size (supports M/G)
+  --shanghai-timezone  Set timezone to Asia/Shanghai
+  lang                 Configure LANG=zh_CN.UTF-8 and show current locale status
 
 System reinstall:
   debian12=<pwd>       Reinstall Debian 12 with specified root password
@@ -1165,8 +1805,10 @@ System reinstall:
 Tool installation:
   speedtest            Install speedtest
   btop                 Install btop
+  lsd                  Install lsd
   neovim               Install neovim + LazyVim
   nexttrace            Install nexttrace
+  yazi                 Install Yazi
   shell                Configure current shell rc
   zsh                  Install and configure zsh
 
@@ -1228,17 +1870,29 @@ main() {
         size="${arg#swap=}"
         config_swap "${size^^}"
         ;;
+      --shanghai-timezone)
+        config_timezone_asia_shanghai
+        ;;
+      lang)
+        cli_config_lang_zh_utf8
+        ;;
       speedtest)
         install_speedtest
         ;;
       btop)
         install_btop
         ;;
+      lsd)
+        install_lsd
+        ;;
       neovim)
         install_neovim
         ;;
       nexttrace)
         install_nexttrace
+        ;;
+      yazi)
+        install_yazi
         ;;
       shell)
         config_shell
