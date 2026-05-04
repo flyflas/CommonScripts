@@ -12,6 +12,7 @@ readonly LOG_FILE="${LOG_FILE:-/tmp/install.log}"
 readonly UI_LOG_FILE="${UI_LOG_FILE:-/tmp/install.ui.log}"
 readonly SELECTION_FILE="${SELECTION_FILE:-/tmp/init.selection}"
 readonly SCRIPT_MARK="# === AUTO CONFIGURED BY INIT.SH ==="
+readonly SSH_LOGIN_INFO_MARK="# === SSH LOGIN INFO BY INIT.SH ==="
 readonly LSD_ALIAS_MARK="# === LSD ALIASES BY INIT.SH ==="
 readonly LSD_CONFIG_DATE_LINE='date: "+%Y/%m/%d %H:%M:%S"'
 readonly TARGET_TIMEZONE="Asia/Shanghai"
@@ -276,6 +277,170 @@ configure_lsd_post_install() {
   configure_lsd_config "$target_home" "$target_uid" "$target_gid" || return 1
 }
 
+resolve_fastfetch_target_context() {
+  resolve_lsd_target_context
+}
+
+chown_fastfetch_target_path() {
+  chown_lsd_target_path "$@"
+}
+
+write_fastfetch_config_template() {
+  local output_file="$1"
+
+  cat >"$output_file" <<'EOF'
+{
+    "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+    "logo": {
+        "padding": {
+            "top": 2
+        }
+    },
+    "display": {
+        "separator": " -> "
+    },
+    "modules": [
+        "title",
+        "separator",
+        {
+            "type": "os",
+            "key": " OS",
+            "keyColor": "yellow",
+            "format": "{2}"
+        },
+        {
+            "type": "os",
+            "key": "├─{icon}",
+            "keyColor": "yellow",
+            "format": "{pretty-name} {arch}"
+        },
+        {
+            "type": "kernel",
+            "key": "├─",
+            "keyColor": "yellow"
+        },
+
+        {
+            "type": "packages",
+            "key": "├─󰏖",
+            "keyColor": "yellow"
+        },
+        {
+            "type": "uptime",
+            "key": "╰─󰅐",
+            "keyColor": "yellow"
+        },
+        "break",
+
+        {
+            "type": "shell",
+            "key": " SHELL",
+            "keyColor": "blue"
+        },
+        {
+            "type": "terminal",
+            "key": "├─",
+            "keyColor": "blue"
+        },
+        {
+            "type": "terminalfont",
+            "key": "├─",
+            "keyColor": "blue"
+        },
+        {
+            "type": "lm",
+            "key": "╰─󰧨",
+            "keyColor": "blue"
+        },
+        "break",
+
+        {
+            "type": "host",
+            "key": "󰌢 PC",
+            "keyColor": "green"
+        },
+        {
+            "type": "cpu",
+            "key": "├─󰻠",
+            "keyColor": "green"
+        },
+        {
+            "type": "gpu",
+            "key": "├─󰍛",
+            "keyColor": "green"
+        },
+        {
+            "type": "memory",
+            "key": "├─󰑭",
+            "keyColor": "green"
+        },
+        {
+            "type": "disk",
+            "key": "├─",
+            "keyColor": "green"
+        },
+        {
+            "type": "swap",
+            "key": "╰─󰓡",
+            "keyColor": "green"
+        },
+
+        "break",
+        "colors"
+    ]
+}
+EOF
+}
+
+configure_fastfetch_config() {
+  local home_dir="$1"
+  local target_uid="${2:-0}"
+  local target_gid="${3:-0}"
+  local config_dir="$home_dir/.config/fastfetch"
+  local config_file="$config_dir/config.jsonc"
+  local tmp_file
+
+  [[ -d "$config_dir" ]] || run_cmd mkdir -p "$config_dir" || return 1
+
+  tmp_file="$(mktemp "${config_file}.XXXXXX")" || return 1
+  write_fastfetch_config_template "$tmp_file" || {
+    run_cmd rm -f "$tmp_file" || true
+    return 1
+  }
+
+  if [[ -f "$config_file" ]]; then
+    backup_file "$config_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+  fi
+
+  if [[ -L "$config_file" ]]; then
+    run_cmd cp "$tmp_file" "$config_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+    run_cmd rm -f "$tmp_file" || true
+  else
+    run_cmd mv "$tmp_file" "$config_file" || {
+      run_cmd rm -f "$tmp_file" || true
+      return 1
+    }
+  fi
+
+  chown_fastfetch_target_path "$target_uid" "$target_gid" "$home_dir/.config" || true
+  chown_fastfetch_target_path "$target_uid" "$target_gid" "$config_dir" || return 1
+  chown_fastfetch_target_path "$target_uid" "$target_gid" "$config_file" || return 1
+  log "configure_fastfetch_config done: $config_file"
+}
+
+configure_fastfetch_post_install() {
+  local target_user target_home target_shell target_uid target_gid
+
+  IFS=$'\t' read -r target_user target_home target_shell target_uid target_gid < <(resolve_fastfetch_target_context) || return 1
+  configure_fastfetch_config "$target_home" "$target_uid" "$target_gid" || return 1
+}
+
 
 # ============================
 # Locale helpers
@@ -454,6 +619,7 @@ map_selection_token() {
     1Panel|install_1panel) echo "install_1panel" ;;
     Btop|install_btop) echo "install_btop" ;;
     Docker|install_docker) echo "install_docker" ;;
+    Fastfetch|install_fastfetch) echo "install_fastfetch" ;;
     Lsd|install_lsd) echo "install_lsd" ;;
     Ncdu|install_ncdu) echo "install_ncdu" ;;
     Neovim|install_neovim) echo "install_neovim" ;;
@@ -661,6 +827,7 @@ menu_tool_installation() {
   local d_1panel
   local d_btop
   local d_docker
+  local d_fastfetch
   local d_lsd
   local d_ncdu
   local d_neovim
@@ -673,6 +840,7 @@ menu_tool_installation() {
   d_1panel=$(printf "%-25s" "Server control panel")
   d_btop=$(printf "%-25s" "Resource monitor")
   d_docker=$(printf "%-25s" "Container engine")
+  d_fastfetch=$(printf "%-25s" "System information tool")
   d_lsd=$(printf "%-25s" "Modern ls replacement")
   d_ncdu=$(printf "%-25s" "Disk usage analyzer")
   d_neovim=$(printf "%-25s" "Text editor (LazyVim)")
@@ -686,6 +854,7 @@ menu_tool_installation() {
   if systemctl is-active 1panel.service >/dev/null 2>&1; then d_1panel+=" [OK]"; else d_1panel+="     "; fi
   if command_exists btop; then d_btop+=" [OK]"; else d_btop+="     "; fi
   if command_exists docker; then d_docker+=" [OK]"; else d_docker+="     "; fi
+  if command_exists fastfetch; then d_fastfetch+=" [OK]"; else d_fastfetch+="     "; fi
   if command_exists lsd; then d_lsd+=" [OK]"; else d_lsd+="     "; fi
   if command_exists ncdu; then d_ncdu+=" [OK]"; else d_ncdu+="     "; fi
   if command_exists nvim; then d_neovim+=" [OK]"; else d_neovim+="     "; fi
@@ -701,6 +870,7 @@ menu_tool_installation() {
     1Panel "$d_1panel" OFF \
     Btop "$d_btop" OFF \
     Docker "$d_docker" OFF \
+    Fastfetch "$d_fastfetch" OFF \
     Lsd "$d_lsd" OFF \
     Ncdu "$d_ncdu" OFF \
     Neovim "$d_neovim" OFF \
@@ -919,6 +1089,7 @@ task_title() {
     install_1panel*) echo "Install 1Panel" ;;
     install_btop*) echo "Install btop" ;;
     install_docker*) echo "Install Docker" ;;
+    install_fastfetch*) echo "Install fastfetch" ;;
     install_lsd*) echo "Install lsd" ;;
     install_ncdu*) echo "Install ncdu" ;;
     install_neovim*) echo "Install Neovim" ;;
@@ -1183,6 +1354,56 @@ install_btop() {
   command_exists btop
 }
 
+install_fastfetch() {
+  require_root || return 1
+  install_packages curl ca-certificates || return 1
+
+  local arch release_arch api_url release_json deb_url tmp_deb
+
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64)
+      release_arch="amd64"
+      ;;
+    aarch64|arm64)
+      release_arch="aarch64"
+      ;;
+    *)
+      log "ERROR: unsupported architecture for fastfetch: $arch"
+      return 1
+      ;;
+  esac
+
+  api_url="https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest"
+  release_json="$(mktemp "/tmp/fastfetch-release-${release_arch}.XXXXXX.json")" || return 1
+  run_cmd curl -fL --retry 3 --connect-timeout 10 "$api_url" -o "$release_json" || {
+    run_cmd rm -f "$release_json" || true
+    return 1
+  }
+  deb_url="$(sed -nE "s|.*\"browser_download_url\": \"([^\"]*/fastfetch-linux-${release_arch}\.deb)\".*|\1|p" "$release_json" | head -n 1)"
+  run_cmd rm -f "$release_json" || true
+
+  if [[ -z "$deb_url" ]]; then
+    log "ERROR: unable to find fastfetch ${release_arch} .deb asset from latest release"
+    return 1
+  fi
+
+  tmp_deb="$(mktemp "/tmp/fastfetch-${release_arch}.XXXXXX.deb")" || return 1
+  run_cmd curl -fL --retry 3 --connect-timeout 10 "$deb_url" -o "$tmp_deb" || {
+    run_cmd rm -f "$tmp_deb" || true
+    return 1
+  }
+  run_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp_deb" || {
+    run_cmd rm -f "$tmp_deb" || true
+    return 1
+  }
+  run_cmd rm -f "$tmp_deb" || true
+
+  command_exists fastfetch || return 1
+  configure_fastfetch_post_install || return 1
+  log "install_fastfetch done"
+}
+
 install_lsd() {
   require_root || return 1
   install_packages curl ca-certificates || return 1
@@ -1325,9 +1546,14 @@ config_timezone_asia_shanghai() {
 }
 
 config_shell() {
-  local home_dir="${HOME:-/root}"
-  local shell_path="${SHELL:-}"
+  local target_user
+  local home_dir
+  local shell_path
+  local target_uid
+  local target_gid
   local rc_file=""
+
+  IFS=$'\t' read -r target_user home_dir shell_path target_uid target_gid < <(resolve_lsd_target_context) || return 1
 
   if [[ "$shell_path" == *zsh* ]]; then
     rc_file="$home_dir/.zshrc"
@@ -1346,33 +1572,78 @@ config_shell() {
 
   if grep -Fq "$SCRIPT_MARK" "$rc_file" >>"$LOG_FILE" 2>&1; then
     log "config_shell: marker exists, skip"
-    return 0
+  else
+    backup_file "$rc_file" || return 1
+
+    {
+      printf '\n%s\n' "$SCRIPT_MARK"
+      printf 'export HISTTIMEFORMAT="%%F %%T  "\n'
+      printf 'export HISTSIZE=10000\n'
+      printf 'export HISTIGNORE="pwd:ls:exit"\n'
+      printf 'export EDITOR="nvim"\n'
+      printf 'alias ll="ls -lh --color=auto"\n'
+      printf 'alias la="ls -lha --color=auto"\n'
+      printf 'alias cls="clear"\n'
+      printf 'alias grep="grep --color=auto"\n'
+      printf 'alias ..="cd .."\n'
+      printf 'alias df="df -h"\n'
+      printf 'alias du="du -h"\n'
+      if command_exists nvim; then
+        printf 'alias vim="nvim"\n'
+      fi
+    } >>"$rc_file"
+
+    chown_lsd_target_path "$target_uid" "$target_gid" "$rc_file" || return 1
+    log "config_shell user rc done: $rc_file"
   fi
 
-  backup_file "$rc_file" || return 1
+  [[ -f "$home_dir/.hushlogin" ]] || run_cmd touch "$home_dir/.hushlogin" || return 1
+  chown_lsd_target_path "$target_uid" "$target_gid" "$home_dir/.hushlogin" || return 1
 
-  {
-    printf '\n%s\n' "$SCRIPT_MARK"
-    printf 'export HISTTIMEFORMAT="%%F %%T  "\n'
-    printf 'export HISTSIZE=10000\n'
-    printf 'export HISTIGNORE="pwd:ls:exit"\n'
-    printf 'export EDITOR="nvim"\n'
-    printf 'alias ll="ls -lh --color=auto"\n'
-    printf 'alias la="ls -lha --color=auto"\n'
-    printf 'alias cls="clear"\n'
-    printf 'alias grep="grep --color=auto"\n'
-    printf 'alias ..="cd .."\n'
-    printf 'alias df="df -h"\n'
-    printf 'alias du="du -h"\n'
-    if command_exists nvim; then
-      printf 'alias vim="nvim"\n'
-    fi
-  } >>"$rc_file"
+  configure_ssh_login_info_global_rc || return 1
 
-  log "config_shell done: $rc_file"
+  log "config_shell done: $rc_file; hushlogin=$home_dir/.hushlogin"
   if [[ "${LIVE_OUTPUT:-0}" -eq 0 ]]; then
     dialog_cmd --backtitle "$UI_TITLE" --title "Shell Configured" --ok-label "OK" --msgbox "Shell profile has been successfully configured in $rc_file." 8 60
   fi
+}
+
+configure_ssh_login_info_global_rc() {
+  local rc_file
+  local found=0
+
+  for rc_file in /etc/bash.bashrc /etc/zsh/zshrc; do
+    [[ -f "$rc_file" ]] && found=1
+  done
+
+  if [[ "$found" -eq 0 ]]; then
+    log "configure_ssh_login_info_global_rc: no supported global rc files found"
+    return 0
+  fi
+
+  require_root || return 1
+
+  for rc_file in /etc/bash.bashrc /etc/zsh/zshrc; do
+    [[ -f "$rc_file" ]] || continue
+
+    if grep -Fq "$SSH_LOGIN_INFO_MARK" "$rc_file" >>"$LOG_FILE" 2>&1; then
+      log "configure_ssh_login_info_global_rc: marker exists, skip $rc_file"
+      continue
+    fi
+
+    backup_file "$rc_file" || return 1
+    {
+      printf '\n%s\n' "$SSH_LOGIN_INFO_MARK"
+      printf 'if [[ -o interactive && -n "$SSH_CONNECTION" && -t 1 ]]; then\n'
+      printf '    command -v fastfetch >/dev/null 2>&1 && fastfetch\n'
+      printf '\n'
+      printf '    uname -r\n'
+      printf '    uname -v\n'
+      printf 'fi\n'
+    } >>"$rc_file"
+
+    log "configure_ssh_login_info_global_rc done: $rc_file"
+  done
 }
 
 config_lang_zh_utf8() {
@@ -1805,6 +2076,7 @@ System reinstall:
 Tool installation:
   speedtest            Install speedtest
   btop                 Install btop
+  fastfetch            Install fastfetch
   lsd                  Install lsd
   neovim               Install neovim + LazyVim
   nexttrace            Install nexttrace
@@ -1881,6 +2153,9 @@ main() {
         ;;
       btop)
         install_btop
+        ;;
+      fastfetch)
+        install_fastfetch
         ;;
       lsd)
         install_lsd
