@@ -20,7 +20,6 @@ readonly TARGET_TIMEZONE="Asia/Shanghai"
 PKG_UPDATED=0
 LIVE_OUTPUT=0
 
-
 # ============================
 # Common helpers
 # ============================
@@ -86,18 +85,18 @@ select_shell_rc_file() {
   local candidate
 
   case "$shell_path" in
-    *zsh*)
-      printf '%s/.zshrc' "$home_dir"
-      return 0
-      ;;
-    *bash*)
-      printf '%s/.bashrc' "$home_dir"
-      return 0
-      ;;
-    *fish*)
-      printf '%s/.config/fish/config.fish' "$home_dir"
-      return 0
-      ;;
+  *zsh*)
+    printf '%s/.zshrc' "$home_dir"
+    return 0
+    ;;
+  *bash*)
+    printf '%s/.bashrc' "$home_dir"
+    return 0
+    ;;
+  *fish*)
+    printf '%s/.config/fish/config.fish' "$home_dir"
+    return 0
+    ;;
   esac
 
   for candidate in "$home_dir/.zshrc" "$home_dir/.bashrc" "$home_dir/.profile"; do
@@ -164,9 +163,9 @@ configure_lsd_aliases() {
   rc_dir="$(dirname "$rc_file")"
 
   case "$rc_file" in
-    */config.fish)
-      alias_style="fish"
-      ;;
+  */config.fish)
+    alias_style="fish"
+    ;;
   esac
 
   [[ -d "$rc_dir" ]] || run_cmd mkdir -p "$rc_dir" || return 1
@@ -362,7 +361,8 @@ write_fastfetch_config_template() {
         {
             "type": "cpu",
             "key": "├─󰻠",
-            "keyColor": "green"
+            "keyColor": "green",
+            "format": "{name} ({cores-physical}C/{cores-logical}T)"
         },
         {
             "type": "gpu",
@@ -441,7 +441,6 @@ configure_fastfetch_post_install() {
   configure_fastfetch_config "$target_home" "$target_uid" "$target_gid" || return 1
 }
 
-
 # ============================
 # Locale helpers
 # ============================
@@ -450,7 +449,7 @@ normalize_locale_name() {
   value="${value%%@*}"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
   case "$value" in
-    *.utf8) value="${value%.utf8}.utf-8" ;;
+  *.utf8) value="${value%.utf8}.utf-8" ;;
   esac
   printf '%s' "$value"
 }
@@ -512,7 +511,6 @@ locale_status_dialog_text() {
   printf 'LC_CTYPE               : %s\\n' "${LC_CTYPE:-unset}"
   printf 'LANG                   : %s' "${LANG:-unset}"
 }
-
 
 # ============================
 # Debian package management
@@ -578,7 +576,6 @@ prepare_reinstall_certificates() {
   run_cmd env DEBIAN_FRONTEND=noninteractive apt install -y --reinstall ca-certificates || return 1
 }
 
-
 # ============================
 # dialog (TUI)
 # ============================
@@ -612,24 +609,24 @@ ensure_terminal_size() {
 map_selection_token() {
   local token="$1"
   case "$token" in
-    SSHD|setup_sshd) echo "setup_sshd" ;;
-    BBR|enable_bbr) echo "enable_bbr" ;;
-    Swap|config_swap) echo "config_swap=1G" ;;
-    TimeZone|ShanghaiTimezone|config_timezone_asia_shanghai) echo "config_timezone_asia_shanghai" ;;
-    1Panel|install_1panel) echo "install_1panel" ;;
-    Btop|install_btop) echo "install_btop" ;;
-    Docker|install_docker) echo "install_docker" ;;
-    Fastfetch|install_fastfetch) echo "install_fastfetch" ;;
-    Lsd|install_lsd) echo "install_lsd" ;;
-    Ncdu|install_ncdu) echo "install_ncdu" ;;
-    Neovim|install_neovim) echo "install_neovim" ;;
-    NextTrace|install_nexttrace) echo "install_nexttrace" ;;
-    Singbox|install_singbox) echo "install_singbox" ;;
-    SpeedTest|install_speedtest) echo "install_speedtest" ;;
-    Yazi|install_yazi) echo "install_yazi" ;;
-    Zsh|install_zsh) echo "install_zsh" ;;
-    Debian12|dd_debian12) echo "dd_debian12" ;;
-    *) echo "$token" ;;
+  SSHD | setup_sshd) echo "setup_sshd" ;;
+  BBR | enable_bbr) echo "enable_bbr" ;;
+  Swap | config_swap) echo "config_swap=1G" ;;
+  TimeZone | ShanghaiTimezone | config_timezone_asia_shanghai) echo "config_timezone_asia_shanghai" ;;
+  1Panel | install_1panel) echo "install_1panel" ;;
+  Btop | install_btop) echo "install_btop" ;;
+  Docker | install_docker) echo "install_docker" ;;
+  Fastfetch | install_fastfetch) echo "install_fastfetch" ;;
+  Lsd | install_lsd) echo "install_lsd" ;;
+  Ncdu | install_ncdu) echo "install_ncdu" ;;
+  Neovim | install_neovim) echo "install_neovim" ;;
+  NextTrace | install_nexttrace) echo "install_nexttrace" ;;
+  Singbox | install_singbox) echo "install_singbox" ;;
+  SpeedTest | install_speedtest) echo "install_speedtest" ;;
+  Yazi | install_yazi) echo "install_yazi" ;;
+  Zsh | install_zsh) echo "install_zsh" ;;
+  Debian12 | dd_debian12) echo "dd_debian12" ;;
+  *) echo "$token" ;;
   esac
 }
 
@@ -689,136 +686,136 @@ menu_system_settings() {
 
     # Execute directly with simple interactive UI
     case "$choice" in
-      SSHD)
-        dialog_cmd --infobox "Configuring SSH server...\nPlease wait." 5 40
+    SSHD)
+      dialog_cmd --infobox "Configuring SSH server...\nPlease wait." 5 40
+      clear
+      setup_sshd
+      ;;
+    BBR)
+      if check_bbr_enabled; then
+        dialog_cmd \
+          --backtitle "$UI_TITLE" \
+          --title "BBR Status" \
+          --ok-label "OK" \
+          --msgbox "Current BBR status: Already Enabled\n\nNo further configuration is required." 8 45
+      else
+        if dialog_cmd \
+          --backtitle "$UI_TITLE" \
+          --title "Enable BBR" \
+          --yes-label "Confirm" \
+          --no-label "Cancel" \
+          --yesno "Current BBR status: Not Enabled\n\nDo you want to enable the BBR congestion control algorithm now?" 8 60; then
+
+          dialog_cmd --infobox "Enabling BBR...\nPlease wait." 5 40
+          clear
+          enable_bbr
+        fi
+      fi
+      ;;
+    Swap)
+      local mem_total_kb mem_total_gb recommend_gb val status_swap
+      mem_total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+
+      # Round up/down to nearest GB: (KB + 512MB) / 1GB
+      if [[ -n "$mem_total_kb" && "$mem_total_kb" -gt 0 ]]; then
+        mem_total_gb=$(((mem_total_kb + 524288) / 1048576))
+        [[ "$mem_total_gb" -eq 0 ]] && mem_total_gb=1
+      else
+        # Fallback if meminfo is unreadable
+        mem_total_gb=1
+      fi
+
+      if [[ "$mem_total_gb" -lt 2 ]]; then
+        recommend_gb=$((mem_total_gb > 0 ? mem_total_gb * 2 : 1))
+      elif [[ "$mem_total_gb" -le 8 ]]; then
+        recommend_gb="$mem_total_gb"
+      else
+        recommend_gb=4
+      fi
+
+      status_swap=0
+      val="$(dialog_cmd \
+        --stdout \
+        --backtitle "$UI_TITLE" \
+        --title "Configure Swap Space" \
+        --ok-label "Confirm" \
+        --cancel-label "Back" \
+        --inputbox "Current physical memory: ${mem_total_gb}G\nRecommended swap size: ${recommend_gb}G\n\nEnter desired swap size (e.g. 512M, 1G, 4G):" 12 60 "${recommend_gb}G")" || status_swap=$?
+
+      if [[ "$status_swap" -eq 0 && -n "$val" ]]; then
+        dialog_cmd --infobox "Configuring Swap (${val})...\nPlease wait." 5 40
         clear
-        setup_sshd
-        ;;
-      BBR)
-        if check_bbr_enabled; then
+        config_swap "$val"
+      fi
+      ;;
+    TimeZone)
+      local timezone_current timezone_prompt
+      if timezone_current="$(current_timezone_value)"; then
+        timezone_prompt="Current timezone: ${timezone_current:-unknown}\nTarget timezone : $TARGET_TIMEZONE\n\nDo you want to set the system timezone to $TARGET_TIMEZONE?"
+      else
+        timezone_prompt="Current timezone: unavailable (timedatectl not found or not usable)\nTarget timezone : $TARGET_TIMEZONE\n\nDo you want to set the system timezone to $TARGET_TIMEZONE?"
+      fi
+
+      if dialog_cmd \
+        --backtitle "$UI_TITLE" \
+        --title "Set System Timezone" \
+        --yes-label "Confirm" \
+        --no-label "Cancel" \
+        --yesno "$timezone_prompt" 9 70; then
+        dialog_cmd --infobox "Configuring system timezone...\nPlease wait." 5 45
+        clear
+        if config_timezone_asia_shanghai; then
           dialog_cmd \
             --backtitle "$UI_TITLE" \
-            --title "BBR Status" \
+            --title "Timezone Configured" \
             --ok-label "OK" \
-            --msgbox "Current BBR status: Already Enabled\n\nNo further configuration is required." 8 45
+            --msgbox "System timezone has been set to $TARGET_TIMEZONE." 7 58
         else
-          if dialog_cmd \
+          dialog_cmd \
             --backtitle "$UI_TITLE" \
-            --title "Enable BBR" \
-            --yes-label "Confirm" \
-            --no-label "Cancel" \
-            --yesno "Current BBR status: Not Enabled\n\nDo you want to enable the BBR congestion control algorithm now?" 8 60; then
-            
-            dialog_cmd --infobox "Enabling BBR...\nPlease wait." 5 40
-            clear
-            enable_bbr
-          fi
+            --title "Timezone Configuration Failed" \
+            --ok-label "OK" \
+            --msgbox "Failed to set system timezone to $TARGET_TIMEZONE.\n\nSee log: $LOG_FILE" 8 64
         fi
-        ;;
-      Swap)
-        local mem_total_kb mem_total_gb recommend_gb val status_swap
-        mem_total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-        
-        # Round up/down to nearest GB: (KB + 512MB) / 1GB
-        if [[ -n "$mem_total_kb" && "$mem_total_kb" -gt 0 ]]; then
-          mem_total_gb=$(( (mem_total_kb + 524288) / 1048576 ))
-          [[ "$mem_total_gb" -eq 0 ]] && mem_total_gb=1
-        else
-          # Fallback if meminfo is unreadable
-          mem_total_gb=1
-        fi
-        
-        if [[ "$mem_total_gb" -lt 2 ]]; then
-          recommend_gb=$(( mem_total_gb > 0 ? mem_total_gb * 2 : 1 ))
-        elif [[ "$mem_total_gb" -le 8 ]]; then
-          recommend_gb="$mem_total_gb"
-        else
-          recommend_gb=4
-        fi
-        
-        status_swap=0
-        val="$(dialog_cmd \
-          --stdout \
-          --backtitle "$UI_TITLE" \
-          --title "Configure Swap Space" \
-          --ok-label "Confirm" \
-          --cancel-label "Back" \
-          --inputbox "Current physical memory: ${mem_total_gb}G\nRecommended swap size: ${recommend_gb}G\n\nEnter desired swap size (e.g. 512M, 1G, 4G):" 12 60 "${recommend_gb}G")" || status_swap=$?
+      fi
+      ;;
+    LANG)
+      local locale_msg lang_prompt
+      locale_msg="$(locale_status_dialog_text)"
+      if is_current_terminal_zh_cn_utf8; then
+        lang_prompt="Current terminal is already using zh_CN.UTF-8.\n\n${locale_msg}\n\nThis will ensure the system default LANG is set to zh_CN.UTF-8.\n\nDo you want to continue?"
+      else
+        lang_prompt="Current terminal is not using zh_CN.UTF-8.\n\n${locale_msg}\n\nThis will set the system default LANG=zh_CN.UTF-8.\nIt will not change LC_ALL or LC_CTYPE in the current terminal.\nYou may need to reconnect or log in again for the new default to apply.\n\nDo you want to continue?"
+      fi
 
-        if [[ "$status_swap" -eq 0 && -n "$val" ]]; then
-          dialog_cmd --infobox "Configuring Swap (${val})...\nPlease wait." 5 40
-          clear
-          config_swap "$val"
-        fi
-        ;;
-      TimeZone)
-        local timezone_current timezone_prompt
-        if timezone_current="$(current_timezone_value)"; then
-          timezone_prompt="Current timezone: ${timezone_current:-unknown}\nTarget timezone : $TARGET_TIMEZONE\n\nDo you want to set the system timezone to $TARGET_TIMEZONE?"
-        else
-          timezone_prompt="Current timezone: unavailable (timedatectl not found or not usable)\nTarget timezone : $TARGET_TIMEZONE\n\nDo you want to set the system timezone to $TARGET_TIMEZONE?"
-        fi
-
-        if dialog_cmd \
-          --backtitle "$UI_TITLE" \
-          --title "Set System Timezone" \
-          --yes-label "Confirm" \
-          --no-label "Cancel" \
-          --yesno "$timezone_prompt" 9 70; then
-          dialog_cmd --infobox "Configuring system timezone...\nPlease wait." 5 45
-          clear
-          if config_timezone_asia_shanghai; then
-            dialog_cmd \
-              --backtitle "$UI_TITLE" \
-              --title "Timezone Configured" \
-              --ok-label "OK" \
-              --msgbox "System timezone has been set to $TARGET_TIMEZONE." 7 58
-          else
-            dialog_cmd \
-              --backtitle "$UI_TITLE" \
-              --title "Timezone Configuration Failed" \
-              --ok-label "OK" \
-              --msgbox "Failed to set system timezone to $TARGET_TIMEZONE.\n\nSee log: $LOG_FILE" 8 64
-          fi
-        fi
-        ;;
-      LANG)
-        local locale_msg lang_prompt
-        locale_msg="$(locale_status_dialog_text)"
-        if is_current_terminal_zh_cn_utf8; then
-          lang_prompt="Current terminal is already using zh_CN.UTF-8.\n\n${locale_msg}\n\nThis will ensure the system default LANG is set to zh_CN.UTF-8.\n\nDo you want to continue?"
-        else
-          lang_prompt="Current terminal is not using zh_CN.UTF-8.\n\n${locale_msg}\n\nThis will set the system default LANG=zh_CN.UTF-8.\nIt will not change LC_ALL or LC_CTYPE in the current terminal.\nYou may need to reconnect or log in again for the new default to apply.\n\nDo you want to continue?"
-        fi
-
-        if dialog_cmd \
-          --backtitle "$UI_TITLE" \
-          --title "Set System Language" \
-          --yes-label "Confirm" \
-          --no-label "Cancel" \
-          --yesno "$lang_prompt" 18 76; then
-          dialog_cmd --infobox "Configuring system language...\nPlease wait." 5 40
-          clear
-          if config_lang_zh_utf8; then
-            dialog_cmd \
-              --backtitle "$UI_TITLE" \
-              --title "Language Configured" \
-              --ok-label "OK" \
-              --msgbox "System LANG has been set to zh_CN.UTF-8.\n\nIf LC_ALL or LC_CTYPE is set in your shell, SSH client, terminal profile, or service environment, it may still override LANG until removed or changed.\n\nReconnect or log in again for the new default to apply." 12 72
-          else
-            dialog_cmd \
-              --backtitle "$UI_TITLE" \
-              --title "Language Configuration Failed" \
-              --ok-label "OK" \
-              --msgbox "Failed to configure LANG=zh_CN.UTF-8.\n\nSee log: $LOG_FILE" 8 64
-          fi
-        fi
-        ;;
-      Shell)
-        dialog_cmd --infobox "Configuring shell profile...\nPlease wait." 5 40
+      if dialog_cmd \
+        --backtitle "$UI_TITLE" \
+        --title "Set System Language" \
+        --yes-label "Confirm" \
+        --no-label "Cancel" \
+        --yesno "$lang_prompt" 18 76; then
+        dialog_cmd --infobox "Configuring system language...\nPlease wait." 5 40
         clear
-        config_shell
-        ;;
+        if config_lang_zh_utf8; then
+          dialog_cmd \
+            --backtitle "$UI_TITLE" \
+            --title "Language Configured" \
+            --ok-label "OK" \
+            --msgbox "System LANG has been set to zh_CN.UTF-8.\n\nIf LC_ALL or LC_CTYPE is set in your shell, SSH client, terminal profile, or service environment, it may still override LANG until removed or changed.\n\nReconnect or log in again for the new default to apply." 12 72
+        else
+          dialog_cmd \
+            --backtitle "$UI_TITLE" \
+            --title "Language Configuration Failed" \
+            --ok-label "OK" \
+            --msgbox "Failed to configure LANG=zh_CN.UTF-8.\n\nSee log: $LOG_FILE" 8 64
+        fi
+      fi
+      ;;
+    Shell)
+      dialog_cmd --infobox "Configuring shell profile...\nPlease wait." 5 40
+      clear
+      config_shell
+      ;;
     esac
   done
 }
@@ -905,7 +902,7 @@ menu_system_reinstall() {
 
   # Create a temporary DIALOGRC for a high-contrast danger theme
   local temp_rc="/tmp/dialog_danger.rc"
-  cat <<EOF > "$temp_rc"
+  cat <<EOF >"$temp_rc"
 screen_color = (CYAN,BLUE,ON)
 dialog_color = (WHITE,RED,ON)
 title_color = (YELLOW,RED,ON)
@@ -981,12 +978,12 @@ EOF
           --msgbox "The two passwords do not match.\nPlease try again." 8 40
       fi
     done
-    
+
     local task_name
     [[ "$choice" == "Debian12" ]] && task_name="dd_debian12"
     [[ "$choice" == "Debian13" ]] && task_name="dd_debian13"
     [[ "$choice" == "Alpine" ]] && task_name="dd_alpine"
-    
+
     clear
     run_selected_tasks_with_progress --completion-reboot "${task_name}=${pwd}"
   fi
@@ -1019,15 +1016,14 @@ tui_main_menu() {
     fi
 
     case "$choice" in
-      1) menu_system_settings ;;
-      2) menu_system_reinstall ;;
-      3) menu_tool_installation ;;
+    1) menu_system_settings ;;
+    2) menu_system_reinstall ;;
+    3) menu_tool_installation ;;
     esac
   done
 
   clear
 }
-
 
 # ============================
 # Task execution framework
@@ -1081,28 +1077,28 @@ run_one_selected_task() {
 task_title() {
   local item="$1"
   case "$item" in
-    setup_sshd*) echo "Configure SSH" ;;
-    enable_bbr*) echo "Enable BBR" ;;
-    config_swap*) echo "Configure Swap" ;;
-    config_timezone_asia_shanghai*) echo "Set Timezone Asia/Shanghai" ;;
-    config_lang_zh_utf8*) echo "Configure LANG zh_CN.UTF-8" ;;
-    install_1panel*) echo "Install 1Panel" ;;
-    install_btop*) echo "Install btop" ;;
-    install_docker*) echo "Install Docker" ;;
-    install_fastfetch*) echo "Install fastfetch" ;;
-    install_lsd*) echo "Install lsd" ;;
-    install_ncdu*) echo "Install ncdu" ;;
-    install_neovim*) echo "Install Neovim" ;;
-    install_nexttrace*) echo "Install NextTrace" ;;
-    install_singbox*) echo "Install Sing-box" ;;
-    install_speedtest*) echo "Install SpeedTest" ;;
-    install_yazi*) echo "Install Yazi" ;;
-    install_zsh*) echo "Install zsh" ;;
-    install_base*) echo "Install Base Bundle" ;;
-    dd_debian12*) echo "Reinstall Debian 12" ;;
-    dd_debian13*) echo "Reinstall Debian 13" ;;
-    dd_alpine*) echo "Reinstall Alpine" ;;
-    *) echo "$item" ;;
+  setup_sshd*) echo "Configure SSH" ;;
+  enable_bbr*) echo "Enable BBR" ;;
+  config_swap*) echo "Configure Swap" ;;
+  config_timezone_asia_shanghai*) echo "Set Timezone Asia/Shanghai" ;;
+  config_lang_zh_utf8*) echo "Configure LANG zh_CN.UTF-8" ;;
+  install_1panel*) echo "Install 1Panel" ;;
+  install_btop*) echo "Install btop" ;;
+  install_docker*) echo "Install Docker" ;;
+  install_fastfetch*) echo "Install fastfetch" ;;
+  install_lsd*) echo "Install lsd" ;;
+  install_ncdu*) echo "Install ncdu" ;;
+  install_neovim*) echo "Install Neovim" ;;
+  install_nexttrace*) echo "Install NextTrace" ;;
+  install_singbox*) echo "Install Sing-box" ;;
+  install_speedtest*) echo "Install SpeedTest" ;;
+  install_yazi*) echo "Install Yazi" ;;
+  install_zsh*) echo "Install zsh" ;;
+  install_base*) echo "Install Base Bundle" ;;
+  dd_debian12*) echo "Reinstall Debian 12" ;;
+  dd_debian13*) echo "Reinstall Debian 13" ;;
+  dd_alpine*) echo "Reinstall Alpine" ;;
+  *) echo "$item" ;;
   esac
 }
 
@@ -1200,7 +1196,7 @@ run_selected_tasks_with_progress() {
   for item in "${SELECTED_TASKS[@]}"; do
     idx=$((idx + 1))
     title="$(task_title "$item")"
-    percent=$(( (idx - 1) * 100 / total ))
+    percent=$(((idx - 1) * 100 / total))
 
     # --- Phase 1: show overall progress via --mixedgauge ---
     task_statuses[$((idx - 1))]=$STATUS_IN_PROGRESS
@@ -1268,7 +1264,7 @@ run_selected_tasks_with_progress() {
   done
 
   # --- Phase 3: final summary ---
-  [[ "$failed" -eq 0 ]] && percent=100 || percent=$(( (idx - 1) * 100 / total ))
+  [[ "$failed" -eq 0 ]] && percent=100 || percent=$(((idx - 1) * 100 / total))
 
   local -a g=()
   build_gauge_args g SELECTED_TASKS task_statuses
@@ -1310,33 +1306,32 @@ run_selected_tasks_with_progress() {
     fi
 
     case "$action" in
-      0)
-        dialog_cmd \
-          --backtitle "$UI_TITLE" \
-          --title "Full Installation Log" \
-          --exit-label "Return" \
-          --textbox "$LOG_FILE" 22 78
-        ;;
-      1)
-        if [[ "$show_reboot" -eq 1 ]]; then
-          confirm_and_reboot
-        else
-          break
-        fi
-        ;;
-      3|255)
+    0)
+      dialog_cmd \
+        --backtitle "$UI_TITLE" \
+        --title "Full Installation Log" \
+        --exit-label "Return" \
+        --textbox "$LOG_FILE" 22 78
+      ;;
+    1)
+      if [[ "$show_reboot" -eq 1 ]]; then
+        confirm_and_reboot
+      else
         break
-        ;;
-      *)
-        break
-        ;;
+      fi
+      ;;
+    3 | 255)
+      break
+      ;;
+    *)
+      break
+      ;;
     esac
   done
 
   rm -f "$rc_file"
   [[ "$failed" -eq 0 ]]
 }
-
 
 # ============================
 # Installation / configuration tasks
@@ -1362,16 +1357,16 @@ install_fastfetch() {
 
   arch="$(uname -m)"
   case "$arch" in
-    x86_64)
-      release_arch="amd64"
-      ;;
-    aarch64|arm64)
-      release_arch="aarch64"
-      ;;
-    *)
-      log "ERROR: unsupported architecture for fastfetch: $arch"
-      return 1
-      ;;
+  x86_64)
+    release_arch="amd64"
+    ;;
+  aarch64 | arm64)
+    release_arch="aarch64"
+    ;;
+  *)
+    log "ERROR: unsupported architecture for fastfetch: $arch"
+    return 1
+    ;;
   esac
 
   api_url="https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest"
@@ -1412,16 +1407,16 @@ install_lsd() {
 
   arch="$(uname -m)"
   case "$arch" in
-    x86_64)
-      deb_arch="amd64"
-      ;;
-    aarch64|arm64)
-      deb_arch="arm64"
-      ;;
-    *)
-      log "ERROR: unsupported architecture for lsd: $arch"
-      return 1
-      ;;
+  x86_64)
+    deb_arch="amd64"
+    ;;
+  aarch64 | arm64)
+    deb_arch="arm64"
+    ;;
+  *)
+    log "ERROR: unsupported architecture for lsd: $arch"
+    return 1
+    ;;
   esac
 
   api_url="https://api.github.com/repos/lsd-rs/lsd/releases/latest"
@@ -1478,18 +1473,18 @@ install_neovim() {
 
   arch="$(uname -m)"
   case "$arch" in
-    x86_64)
-      url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz"
-      extract_dir="nvim-linux-x86_64"
-      ;;
-    aarch64|arm64)
-      url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-arm64.tar.gz"
-      extract_dir="nvim-linux-arm64"
-      ;;
-    *)
-      log "ERROR: unsupported architecture for neovim: $arch"
-      return 1
-      ;;
+  x86_64)
+    url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz"
+    extract_dir="nvim-linux-x86_64"
+    ;;
+  aarch64 | arm64)
+    url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-arm64.tar.gz"
+    extract_dir="nvim-linux-arm64"
+    ;;
+  *)
+    log "ERROR: unsupported architecture for neovim: $arch"
+    return 1
+    ;;
   esac
 
   run_cmd rm -rf "$tmp_dir" /opt/nvim "$tmp_tar" || return 1
@@ -1779,7 +1774,7 @@ config_swap() {
   run_cmd rm -f "$swap_file" || return 1
   run_cmd fallocate -l "$swap_size" "$swap_file" || {
     if [[ "$swap_size" == *G ]]; then
-      run_cmd dd if=/dev/zero of="$swap_file" bs=1M count="$(( ${swap_size%G} * 1024 ))" status=none || return 1
+      run_cmd dd if=/dev/zero of="$swap_file" bs=1M count="$((${swap_size%G} * 1024))" status=none || return 1
     else
       run_cmd dd if=/dev/zero of="$swap_file" bs=1M count="${swap_size%M}" status=none || return 1
     fi
@@ -1842,7 +1837,7 @@ setup_sshd() {
   run_cmd systemctl restart sshd || run_cmd systemctl restart ssh || return 1
   run_cmd systemctl is-active sshd || run_cmd systemctl is-active ssh || true
   log "setup_sshd done; port=$port; key=$key_path"
-  
+
   if [[ "${LIVE_OUTPUT:-0}" -eq 0 ]]; then
     dialog_cmd \
       --backtitle "$UI_TITLE" \
@@ -1894,16 +1889,16 @@ install_yazi() {
 
   arch="$(uname -m)"
   case "$arch" in
-    x86_64)
-      yazi_arch="x86_64"
-      ;;
-    aarch64|arm64)
-      yazi_arch="aarch64"
-      ;;
-    *)
-      log "ERROR: unsupported architecture for yazi: $arch"
-      return 1
-      ;;
+  x86_64)
+    yazi_arch="x86_64"
+    ;;
+  aarch64 | arm64)
+    yazi_arch="aarch64"
+    ;;
+  *)
+    log "ERROR: unsupported architecture for yazi: $arch"
+    return 1
+    ;;
   esac
 
   for dep in "${optional_deps[@]}"; do
@@ -1942,7 +1937,7 @@ install_singbox() {
 
   # Configure daily restart at 3:00 AM
   local cron_file="/etc/cron.d/singbox-restart"
-  echo "0 3 * * * root systemctl restart sing-box.service" > "$cron_file"
+  echo "0 3 * * * root systemctl restart sing-box.service" >"$cron_file"
   chmod 644 "$cron_file"
 
   log "install_singbox done"
@@ -1954,7 +1949,7 @@ install_docker() {
 
   log "install_docker: running get.docker.com script"
   run_bash "curl -fsSL https://get.docker.com | bash" || return 1
-  
+
   run_cmd systemctl enable docker
   run_cmd systemctl start docker
 
@@ -1968,11 +1963,11 @@ install_1panel() {
 
   log "install_1panel: running quick_start.sh"
   local log_output="/tmp/1panel_install.log"
-  run_bash "curl -sSL https://resource.fit2cloud.com/1panel/package/quick_start.sh | bash" > "$log_output" 2>&1
+  run_bash "curl -sSL https://resource.fit2cloud.com/1panel/package/quick_start.sh | bash" >"$log_output" 2>&1
   local script_rc=$?
 
-  cat "$log_output" >> "$LOG_FILE"
-  
+  cat "$log_output" >>"$LOG_FILE"
+
   if [[ "$script_rc" -ne 0 ]]; then
     log "ERROR: 1panel installation failed"
     return 1
@@ -2049,7 +2044,6 @@ install_base() {
   enable_bbr || return 1
 }
 
-
 # ============================
 # CLI
 # ============================
@@ -2106,10 +2100,10 @@ main() {
   fi
 
   case "${1:-}" in
-    -h|--help)
-      show_help
-      return 0
-      ;;
+  -h | --help)
+    show_help
+    return 0
+    ;;
   esac
 
   install_dependencies || log "WARN: dependency install failed, continue"
@@ -2118,84 +2112,84 @@ main() {
   while [[ "$#" -gt 0 ]]; do
     arg="$1"
     case "$arg" in
-      tui)
-        tui_main_menu
-        ;;
-      run-selected)
-        shift
-        run_selected_tasks_with_progress "$@"
-        return $?
-        ;;
-      base)
-        install_base
-        ;;
-      sshd)
-        setup_sshd
-        ;;
-      bbr)
-        enable_bbr
-        ;;
-      swap)
-        config_swap "1G"
-        ;;
-      swap=*)
-        size="${arg#swap=}"
-        config_swap "${size^^}"
-        ;;
-      --shanghai-timezone)
-        config_timezone_asia_shanghai
-        ;;
-      lang)
-        cli_config_lang_zh_utf8
-        ;;
-      speedtest)
-        install_speedtest
-        ;;
-      btop)
-        install_btop
-        ;;
-      fastfetch)
-        install_fastfetch
-        ;;
-      lsd)
-        install_lsd
-        ;;
-      neovim)
-        install_neovim
-        ;;
-      nexttrace)
-        install_nexttrace
-        ;;
-      yazi)
-        install_yazi
-        ;;
-      shell)
-        config_shell
-        ;;
-      zsh)
-        install_zsh
-        ;;
-      debian12=*)
-        pwd="${arg#debian12=}"
-        dd_debian12 "$pwd"
-        ;;
-      debian13=*)
-        pwd="${arg#debian13=}"
-        dd_debian13 "$pwd"
-        ;;
-      alpine=*)
-        pwd="${arg#alpine=}"
-        dd_alpine "$pwd"
-        ;;
-      -h|--help)
-        show_help
-        ;;
-      *)
-        log "ERROR: unknown option: $arg"
-        printf 'ERROR: unknown option: %s\n\n' "$arg" >&2
-        show_help
-        return 1
-        ;;
+    tui)
+      tui_main_menu
+      ;;
+    run-selected)
+      shift
+      run_selected_tasks_with_progress "$@"
+      return $?
+      ;;
+    base)
+      install_base
+      ;;
+    sshd)
+      setup_sshd
+      ;;
+    bbr)
+      enable_bbr
+      ;;
+    swap)
+      config_swap "1G"
+      ;;
+    swap=*)
+      size="${arg#swap=}"
+      config_swap "${size^^}"
+      ;;
+    --shanghai-timezone)
+      config_timezone_asia_shanghai
+      ;;
+    lang)
+      cli_config_lang_zh_utf8
+      ;;
+    speedtest)
+      install_speedtest
+      ;;
+    btop)
+      install_btop
+      ;;
+    fastfetch)
+      install_fastfetch
+      ;;
+    lsd)
+      install_lsd
+      ;;
+    neovim)
+      install_neovim
+      ;;
+    nexttrace)
+      install_nexttrace
+      ;;
+    yazi)
+      install_yazi
+      ;;
+    shell)
+      config_shell
+      ;;
+    zsh)
+      install_zsh
+      ;;
+    debian12=*)
+      pwd="${arg#debian12=}"
+      dd_debian12 "$pwd"
+      ;;
+    debian13=*)
+      pwd="${arg#debian13=}"
+      dd_debian13 "$pwd"
+      ;;
+    alpine=*)
+      pwd="${arg#alpine=}"
+      dd_alpine "$pwd"
+      ;;
+    -h | --help)
+      show_help
+      ;;
+    *)
+      log "ERROR: unknown option: $arg"
+      printf 'ERROR: unknown option: %s\n\n' "$arg" >&2
+      show_help
+      return 1
+      ;;
     esac
     shift
   done
