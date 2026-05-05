@@ -1630,6 +1630,7 @@ configure_ssh_login_info_global_rc() {
     {
       printf '\n%s\n' "$SSH_LOGIN_INFO_MARK"
       printf 'if [[ -o interactive && -n "$SSH_CONNECTION" && -t 1 ]]; then\n'
+      printf '    clear\n'
       printf '    command -v fastfetch >/dev/null 2>&1 && fastfetch\n'
       printf '\n'
       printf '    uname -r\n'
