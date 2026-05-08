@@ -59,6 +59,10 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+bat_command_exists() {
+  command_exists bat || command_exists batcat
+}
+
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     log "ERROR: root privileges required"
@@ -615,6 +619,7 @@ map_selection_token() {
   TimeZone | ShanghaiTimezone | config_timezone_asia_shanghai) echo "config_timezone_asia_shanghai" ;;
   1Panel | install_1panel) echo "install_1panel" ;;
   Btop | install_btop) echo "install_btop" ;;
+  Bat | install_bat) echo "install_bat" ;;
   Docker | install_docker) echo "install_docker" ;;
   Fastfetch | install_fastfetch) echo "install_fastfetch" ;;
   Lsd | install_lsd) echo "install_lsd" ;;
@@ -824,6 +829,7 @@ menu_system_settings() {
 menu_tool_installation() {
   local d_1panel
   local d_btop
+  local d_bat
   local d_docker
   local d_fastfetch
   local d_lsd
@@ -838,6 +844,7 @@ menu_tool_installation() {
 
   d_1panel=$(printf "%-25s" "Server control panel")
   d_btop=$(printf "%-25s" "Resource monitor")
+  d_bat=$(printf "%-25s" "Terminal cat viewer")
   d_docker=$(printf "%-25s" "Container engine")
   d_fastfetch=$(printf "%-25s" "System information tool")
   d_lsd=$(printf "%-25s" "Modern ls replacement")
@@ -853,6 +860,7 @@ menu_tool_installation() {
   # Probe installed status and append [OK] or equivalent padding for uniform highlighting
   if systemctl is-active 1panel.service >/dev/null 2>&1; then d_1panel+=" [OK]"; else d_1panel+="     "; fi
   if command_exists btop; then d_btop+=" [OK]"; else d_btop+="     "; fi
+  if bat_command_exists; then d_bat+=" [OK]"; else d_bat+="     "; fi
   if command_exists docker; then d_docker+=" [OK]"; else d_docker+="     "; fi
   if command_exists fastfetch; then d_fastfetch+=" [OK]"; else d_fastfetch+="     "; fi
   if command_exists lsd; then d_lsd+=" [OK]"; else d_lsd+="     "; fi
@@ -870,6 +878,7 @@ menu_tool_installation() {
     "Select one or more tools to install/update:" \
     1Panel "$d_1panel" OFF \
     Btop "$d_btop" OFF \
+    Bat "$d_bat" OFF \
     Docker "$d_docker" OFF \
     Fastfetch "$d_fastfetch" OFF \
     Lsd "$d_lsd" OFF \
@@ -1089,6 +1098,7 @@ task_title() {
   config_lang_zh_utf8*) echo "Configure LANG zh_CN.UTF-8" ;;
   install_1panel*) echo "Install 1Panel" ;;
   install_btop*) echo "Install btop" ;;
+  install_bat*) echo "Install bat" ;;
   install_docker*) echo "Install Docker" ;;
   install_fastfetch*) echo "Install fastfetch" ;;
   install_lsd*) echo "Install lsd" ;;
@@ -1353,6 +1363,25 @@ install_btop() {
   require_root || return 1
   install_packages btop
   command_exists btop
+}
+
+install_bat() {
+  require_root || return 1
+  install_packages bat || return 1
+
+  if ! command_exists bat && [[ -x /usr/bin/batcat ]]; then
+    run_cmd mkdir -p /usr/local/bin || return 1
+    if [[ -e /usr/local/bin/bat || -L /usr/local/bin/bat ]]; then
+      if [[ "$(readlink /usr/local/bin/bat 2>/dev/null || true)" != "/usr/bin/batcat" ]]; then
+        log "ERROR: /usr/local/bin/bat exists and does not point to /usr/bin/batcat"
+        return 1
+      fi
+    else
+      run_cmd ln -s /usr/bin/batcat /usr/local/bin/bat || return 1
+    fi
+  fi
+
+  bat_command_exists
 }
 
 install_fastfetch() {
@@ -2132,6 +2161,7 @@ System reinstall:
 Tool installation:
   speedtest            Install speedtest
   btop                 Install btop
+  bat                  Install bat
   fastfetch            Install fastfetch
   lsd                  Install lsd
   lazygit              Install lazygit
@@ -2210,6 +2240,9 @@ main() {
       ;;
     btop)
       install_btop
+      ;;
+    bat)
+      install_bat
       ;;
     fastfetch)
       install_fastfetch
