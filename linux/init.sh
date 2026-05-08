@@ -618,6 +618,7 @@ map_selection_token() {
   Docker | install_docker) echo "install_docker" ;;
   Fastfetch | install_fastfetch) echo "install_fastfetch" ;;
   Lsd | install_lsd) echo "install_lsd" ;;
+  Lazygit | install_lazygit) echo "install_lazygit" ;;
   Ncdu | install_ncdu) echo "install_ncdu" ;;
   Neovim | install_neovim) echo "install_neovim" ;;
   NextTrace | install_nexttrace) echo "install_nexttrace" ;;
@@ -826,6 +827,7 @@ menu_tool_installation() {
   local d_docker
   local d_fastfetch
   local d_lsd
+  local d_lazygit
   local d_ncdu
   local d_neovim
   local d_nexttrace
@@ -839,6 +841,7 @@ menu_tool_installation() {
   d_docker=$(printf "%-25s" "Container engine")
   d_fastfetch=$(printf "%-25s" "System information tool")
   d_lsd=$(printf "%-25s" "Modern ls replacement")
+  d_lazygit=$(printf "%-25s" "Terminal git interface")
   d_ncdu=$(printf "%-25s" "Disk usage analyzer")
   d_neovim=$(printf "%-25s" "Text editor (LazyVim)")
   d_nexttrace=$(printf "%-25s" "Visual route tracker")
@@ -853,6 +856,7 @@ menu_tool_installation() {
   if command_exists docker; then d_docker+=" [OK]"; else d_docker+="     "; fi
   if command_exists fastfetch; then d_fastfetch+=" [OK]"; else d_fastfetch+="     "; fi
   if command_exists lsd; then d_lsd+=" [OK]"; else d_lsd+="     "; fi
+  if command_exists lazygit; then d_lazygit+=" [OK]"; else d_lazygit+="     "; fi
   if command_exists ncdu; then d_ncdu+=" [OK]"; else d_ncdu+="     "; fi
   if command_exists nvim; then d_neovim+=" [OK]"; else d_neovim+="     "; fi
   if command_exists nexttrace; then d_nexttrace+=" [OK]"; else d_nexttrace+="     "; fi
@@ -869,6 +873,7 @@ menu_tool_installation() {
     Docker "$d_docker" OFF \
     Fastfetch "$d_fastfetch" OFF \
     Lsd "$d_lsd" OFF \
+    Lazygit "$d_lazygit" OFF \
     Ncdu "$d_ncdu" OFF \
     Neovim "$d_neovim" OFF \
     NextTrace "$d_nexttrace" OFF \
@@ -1087,6 +1092,7 @@ task_title() {
   install_docker*) echo "Install Docker" ;;
   install_fastfetch*) echo "Install fastfetch" ;;
   install_lsd*) echo "Install lsd" ;;
+  install_lazygit*) echo "Install lazygit" ;;
   install_ncdu*) echo "Install ncdu" ;;
   install_neovim*) echo "Install Neovim" ;;
   install_nexttrace*) echo "Install NextTrace" ;;
@@ -1447,6 +1453,61 @@ install_lsd() {
   command_exists lsd || return 1
   configure_lsd_post_install || return 1
   log "install_lsd done"
+}
+
+install_lazygit() {
+  require_root || return 1
+  install_packages curl ca-certificates tar gzip git || return 1
+
+  local arch release_arch api_url release_json asset_url tmp_tar tmp_dir
+
+  arch="$(uname -m)"
+  case "$arch" in
+  x86_64)
+    release_arch="x86_64"
+    ;;
+  aarch64 | arm64)
+    release_arch="arm64"
+    ;;
+  *)
+    log "ERROR: unsupported architecture for lazygit: $arch"
+    return 1
+    ;;
+  esac
+
+  (
+    set -Eeuo pipefail
+    api_url="https://api.github.com/repos/jesseduffield/lazygit/releases/latest"
+    release_json="$(mktemp "/tmp/lazygit-release-${release_arch}.XXXXXX.json")"
+    tmp_tar=""
+    tmp_dir=""
+    trap 'rm -rf "$release_json" "$tmp_tar" "$tmp_dir" >/dev/null 2>&1 || true' EXIT
+
+    tmp_tar="$(mktemp "/tmp/lazygit-${release_arch}.XXXXXX.tar.gz")"
+    tmp_dir="$(mktemp -d "/tmp/lazygit-extract-${release_arch}.XXXXXX")"
+
+    run_cmd curl -fL --retry 3 --connect-timeout 10 "$api_url" -o "$release_json"
+    asset_url="$(sed -nE "s|.*\"browser_download_url\": \"([^\"]*/lazygit_[^\"]*_linux_${release_arch}\.tar\.gz)\".*|\1|p" "$release_json" | head -n 1)"
+
+    if [[ -z "$asset_url" ]]; then
+      log "ERROR: unable to find lazygit ${release_arch} tar.gz asset from latest release"
+      exit 1
+    fi
+
+    run_cmd curl -fL --retry 3 --connect-timeout 10 "$asset_url" -o "$tmp_tar"
+    run_cmd tar -xzf "$tmp_tar" -C "$tmp_dir"
+
+    [[ -f "$tmp_dir/lazygit" ]] || {
+      log "ERROR: extracted lazygit binary not found in $tmp_dir"
+      exit 1
+    }
+
+    run_cmd mkdir -p /usr/local/bin
+    run_cmd install -m 0755 "$tmp_dir/lazygit" /usr/local/bin/lazygit
+    command_exists lazygit
+    run_cmd /usr/local/bin/lazygit --version
+    log "install_lazygit done"
+  )
 }
 
 install_lazyvim() {
@@ -2073,6 +2134,7 @@ Tool installation:
   btop                 Install btop
   fastfetch            Install fastfetch
   lsd                  Install lsd
+  lazygit              Install lazygit
   neovim               Install neovim + LazyVim
   nexttrace            Install nexttrace
   yazi                 Install Yazi
@@ -2154,6 +2216,9 @@ main() {
       ;;
     lsd)
       install_lsd
+      ;;
+    lazygit)
+      install_lazygit
       ;;
     neovim)
       install_neovim
