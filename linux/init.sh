@@ -1682,8 +1682,13 @@ config_shell() {
   local target_uid
   local target_gid
   local rc_file=""
+  local ls_command="ls"
 
   IFS=$'\t' read -r target_user home_dir shell_path target_uid target_gid < <(resolve_lsd_target_context) || return 1
+
+  if command_exists lsd; then
+    ls_command="lsd"
+  fi
 
   if [[ "$shell_path" == *zsh* ]]; then
     rc_file="$home_dir/.zshrc"
@@ -1711,8 +1716,8 @@ config_shell() {
       printf 'export HISTSIZE=10000\n'
       printf 'export HISTIGNORE="pwd:ls:exit"\n'
       printf 'export EDITOR="nvim"\n'
-      printf 'alias ll="ls -lh --color=auto"\n'
-      printf 'alias la="ls -lha --color=auto"\n'
+      printf 'alias ll="%s -lh --color=auto"\n' "$ls_command"
+      printf 'alias la="%s -lha --color=auto"\n' "$ls_command"
       printf 'alias cls="clear"\n'
       printf 'alias grep="grep --color=auto"\n'
       printf 'alias ..="cd .."\n'
