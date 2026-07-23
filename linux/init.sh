@@ -55,6 +55,10 @@ run_bash() {
   fi
 }
 
+shell_quote() {
+  printf '%q' "$1"
+}
+
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
@@ -952,17 +956,31 @@ EOF
       return 1
     fi
 
-    local pwd pwd2 status_pwd status_pwd2
+    local pwd pwd2 username status_pwd status_pwd2 status_username
+    status_username=0
+    username="$(dialog_cmd \
+      --stdout \
+      --backtitle "$UI_TITLE" \
+      --title "Username" \
+      --ok-label "Confirm" \
+      --cancel-label "Back" \
+      --inputbox "Set username for the new system. Leave empty to use root:" 10 60)" || status_username=$?
+
+    if [[ "$status_username" -ne 0 ]]; then
+      return 0
+    fi
+    [[ -n "$username" ]] || username="root"
+
     while true; do
       status_pwd=0
       pwd="$(dialog_cmd \
         --stdout \
         --insecure \
         --backtitle "$UI_TITLE" \
-        --title "Root Password" \
+        --title "User Password" \
         --ok-label "Confirm" \
         --cancel-label "Back" \
-        --passwordbox "Set a root password for the new system:" 10 50)" || status_pwd=$?
+        --passwordbox "Set a password for the selected user:" 10 50)" || status_pwd=$?
 
       if [[ "$status_pwd" -ne 0 || -z "$pwd" ]]; then
         return 0
@@ -973,7 +991,7 @@ EOF
         --stdout \
         --insecure \
         --backtitle "$UI_TITLE" \
-        --title "Confirm Root Password" \
+        --title "Confirm User Password" \
         --ok-label "Confirm" \
         --cancel-label "Back" \
         --passwordbox "Please enter the password again to confirm:" 10 50)" || status_pwd2=$?
@@ -998,8 +1016,10 @@ EOF
     [[ "$choice" == "Debian13" ]] && task_name="dd_debian13"
     [[ "$choice" == "Alpine" ]] && task_name="dd_alpine"
 
+    local task_item="${task_name}=${pwd}"$'\t'"${username}"
+
     clear
-    run_selected_tasks_with_progress --completion-reboot "${task_name}=${pwd}"
+    run_selected_tasks_with_progress --completion-reboot "$task_item"
   fi
 }
 
@@ -1046,7 +1066,12 @@ split_task_item() {
   local item="$1"
   TASK_NAME="${item%%=*}"
   TASK_ARG=""
+  TASK_ARG2=""
   [[ "$item" == *"="* ]] && TASK_ARG="${item#*=}"
+  if [[ "$TASK_ARG" == *$'\t'* ]]; then
+    TASK_ARG2="${TASK_ARG#*$'\t'}"
+    TASK_ARG="${TASK_ARG%%$'\t'*}"
+  fi
 }
 
 load_selected_tasks() {
@@ -1060,6 +1085,21 @@ load_selected_tasks() {
   if [[ -f "$SELECTION_FILE" ]]; then
     mapfile -t SELECTED_TASKS <"$SELECTION_FILE"
   fi
+}
+
+apply_reinstall_username_to_tasks() {
+  local username="${1:-}"
+  [[ -n "$username" ]] || return 0
+
+  local idx item
+  for idx in "${!SELECTED_TASKS[@]}"; do
+    item="${SELECTED_TASKS[$idx]}"
+    case "$item" in
+    dd_debian12=* | dd_debian13=* | dd_alpine=*)
+      [[ "$item" == *$'\t'* ]] || SELECTED_TASKS[$idx]="${item}"$'\t'"${username}"
+      ;;
+    esac
+  done
 }
 
 save_selected_tasks() {
@@ -1078,7 +1118,9 @@ run_one_selected_task() {
   fi
 
   log "===== START TASK: $item ====="
-  if [[ -n "$TASK_ARG" ]]; then
+  if [[ -n "$TASK_ARG2" ]]; then
+    "$TASK_NAME" "$TASK_ARG" "$TASK_ARG2"
+  elif [[ -n "$TASK_ARG" ]]; then
     "$TASK_NAME" "$TASK_ARG"
   else
     "$TASK_NAME"
@@ -1179,6 +1221,7 @@ run_selected_tasks_with_progress() {
   fi
 
   load_selected_tasks "$@"
+  apply_reinstall_username_to_tasks "${REINSTALL_USERNAME:-}"
 
   if [[ "${#SELECTED_TASKS[@]}" -eq 0 ]]; then
     printf 'No selected tasks. Use TUI first: ./%s tui\n' "$SCRIPT_NAME"
@@ -1244,7 +1287,9 @@ run_selected_tasks_with_progress() {
         exit 127
       fi
 
-      if [[ -n "$TASK_ARG" ]]; then
+      if [[ -n "$TASK_ARG2" ]]; then
+        "$TASK_NAME" "$TASK_ARG" "$TASK_ARG2"
+      elif [[ -n "$TASK_ARG" ]]; then
         "$TASK_NAME" "$TASK_ARG"
       else
         "$TASK_NAME"
@@ -2082,6 +2127,7 @@ install_1panel() {
 
 dd_debian12() {
   local pwd="${1:-}"
+  local username="${2:-root}"
   if [[ -z "$pwd" ]]; then
     log "ERROR: dd_debian12 requires a password argument"
     printf 'ERROR: Password cannot be empty.\n' >&2
@@ -2089,13 +2135,16 @@ dd_debian12() {
   fi
 
   local script_url="https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh"
+  local cmd="bash <(curl -sL $script_url || wget -qO- $script_url) debian 12 --password $(shell_quote "$pwd") --username $(shell_quote "$username")"
+
   log "dd_debian12: preparing to install Debian 12"
   prepare_reinstall_certificates || return 1
-  run_bash "bash <(curl -sL $script_url || wget -qO- $script_url) debian 12 --password '$pwd'" || return 1
+  run_bash "$cmd" || return 1
 }
 
 dd_debian13() {
   local pwd="${1:-}"
+  local username="${2:-root}"
   if [[ -z "$pwd" ]]; then
     log "ERROR: dd_debian13 requires a password argument"
     printf 'ERROR: Password cannot be empty.\n' >&2
@@ -2103,13 +2152,16 @@ dd_debian13() {
   fi
 
   local script_url="https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh"
+  local cmd="bash <(curl -sL $script_url || wget -qO- $script_url) debian 13 --password $(shell_quote "$pwd") --username $(shell_quote "$username")"
+
   log "dd_debian13: preparing to install Debian 13"
   prepare_reinstall_certificates || return 1
-  run_bash "bash <(curl -sL $script_url || wget -qO- $script_url) debian 13 --password '$pwd'" || return 1
+  run_bash "$cmd" || return 1
 }
 
 dd_alpine() {
   local pwd="${1:-}"
+  local username="${2:-root}"
   if [[ -z "$pwd" ]]; then
     log "ERROR: dd_alpine requires a password argument"
     printf 'ERROR: Password cannot be empty.\n' >&2
@@ -2117,9 +2169,11 @@ dd_alpine() {
   fi
 
   local script_url="https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh"
+  local cmd="bash <(curl -sL $script_url || wget -qO- $script_url) alpine 3.24 --password $(shell_quote "$pwd") --username $(shell_quote "$username")"
+
   log "dd_alpine: preparing to install Alpine"
   prepare_reinstall_certificates || return 1
-  run_bash "bash <(curl -sL $script_url || wget -qO- $script_url) alpine 3.21 --password '$pwd'" || return 1
+  run_bash "$cmd" || return 1
 }
 
 install_base() {
@@ -2157,6 +2211,7 @@ System reinstall:
   debian12=<pwd>       Reinstall Debian 12 with specified root password
   debian13=<pwd>       Reinstall Debian 13 with specified root password
   alpine=<pwd>         Reinstall Alpine with specified root password
+  --username=<name>    Optional reinstall username; empty/default uses root only
 
 Tool installation:
   speedtest            Install speedtest
@@ -2201,7 +2256,13 @@ main() {
 
   install_dependencies || log "WARN: dependency install failed, continue"
 
-  local arg size pwd
+  local arg scan_arg size pwd username=""
+  for scan_arg in "$@"; do
+    case "$scan_arg" in
+    --username=*) username="${scan_arg#--username=}" ;;
+    esac
+  done
+
   while [[ "$#" -gt 0 ]]; do
     arg="$1"
     case "$arg" in
@@ -2210,7 +2271,16 @@ main() {
       ;;
     run-selected)
       shift
-      run_selected_tasks_with_progress "$@"
+      local -a run_args=()
+      while [[ "$#" -gt 0 ]]; do
+        case "${1:-}" in
+        --username=*) ;;
+        *) run_args+=("$1") ;;
+        esac
+        shift
+      done
+      REINSTALL_USERNAME="$username"
+      run_selected_tasks_with_progress "${run_args[@]}"
       return $?
       ;;
     base)
@@ -2231,6 +2301,8 @@ main() {
       ;;
     --shanghai-timezone)
       config_timezone_asia_shanghai
+      ;;
+    --username=*)
       ;;
     lang)
       cli_config_lang_zh_utf8
@@ -2270,15 +2342,15 @@ main() {
       ;;
     debian12=*)
       pwd="${arg#debian12=}"
-      dd_debian12 "$pwd"
+      dd_debian12 "$pwd" "$username"
       ;;
     debian13=*)
       pwd="${arg#debian13=}"
-      dd_debian13 "$pwd"
+      dd_debian13 "$pwd" "$username"
       ;;
     alpine=*)
       pwd="${arg#alpine=}"
-      dd_alpine "$pwd"
+      dd_alpine "$pwd" "$username"
       ;;
     -h | --help)
       show_help
