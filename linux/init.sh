@@ -862,7 +862,7 @@ menu_tool_installation() {
   d_zsh=$(printf "%-25s" "Shell env (oh-my-zsh)")
 
   # Probe installed status and append [OK] or equivalent padding for uniform highlighting
-  if systemctl is-active 1panel.service >/dev/null 2>&1; then d_1panel+=" [OK]"; else d_1panel+="     "; fi
+  if onepanel_services_active; then d_1panel+=" [OK]"; else d_1panel+="     "; fi
   if command_exists btop; then d_btop+=" [OK]"; else d_btop+="     "; fi
   if bat_command_exists; then d_bat+=" [OK]"; else d_bat+="     "; fi
   if command_exists docker; then d_docker+=" [OK]"; else d_docker+="     "; fi
@@ -1230,7 +1230,7 @@ run_selected_tasks_with_progress() {
 
   save_selected_tasks "${SELECTED_TASKS[@]}"
 
-  local total idx item rc title percent
+  local total idx item rc title percent panel_result_file
   local success=0 failed=0
   local failed_list=""
   local rc_file="/tmp/task_rc.$$"
@@ -1268,6 +1268,19 @@ run_selected_tasks_with_progress() {
     : >"$UI_LOG_FILE"
     : >"$rc_file"
 
+    panel_result_file=""
+    if [[ "$item" == install_1panel* ]]; then
+      if ! panel_result_file="$(mktemp /tmp/1panel-result.XXXXXX)" ||
+        ! chmod 600 "$panel_result_file"; then
+        [[ -z "$panel_result_file" ]] || rm -f "$panel_result_file"
+        failed=$((failed + 1))
+        failed_list+=" ${item}(result-file-error)"
+        task_statuses[$((idx - 1))]=$STATUS_FAILED
+        log "ERROR: failed to create the protected 1Panel result file"
+        break
+      fi
+    fi
+
     (
       # Disable exit-on-error so that failures don't kill the
       # subshell (and thereby the pipeline / parent via pipefail).
@@ -1276,6 +1289,7 @@ run_selected_tasks_with_progress() {
 
       # Enable live output inside this subshell
       LIVE_OUTPUT=1
+      ONEPANEL_RESULT_FILE="$panel_result_file"
 
       printf '=== [%d/%d] %s ===\n\n' "$idx" "$total" "$title"
 
@@ -1315,6 +1329,13 @@ run_selected_tasks_with_progress() {
     if [[ "$rc" -eq 0 ]]; then
       success=$((success + 1))
       task_statuses[$((idx - 1))]=$STATUS_SUCCEEDED
+      if [[ -n "$panel_result_file" && -s "$panel_result_file" ]]; then
+        dialog_cmd \
+          --backtitle "$UI_TITLE" \
+          --title "1Panel Installation Successful" \
+          --exit-label "I have saved the password" \
+          --textbox "$panel_result_file" 20 76 || true
+      fi
     else
       failed=$((failed + 1))
       failed_list+=" ${item}(rc=${rc})"
@@ -1322,7 +1343,10 @@ run_selected_tasks_with_progress() {
       log "STOP: task failed, abort remaining tasks"
       break
     fi
+    [[ -z "$panel_result_file" ]] || rm -f "$panel_result_file"
   done
+
+  [[ -z "$panel_result_file" ]] || rm -f "$panel_result_file"
 
   # --- Phase 3: final summary ---
   [[ "$failed" -eq 0 ]] && percent=100 || percent=$(((idx - 1) * 100 / total))
@@ -2098,36 +2122,281 @@ install_docker() {
   log "install_docker done: $(docker --version)"
 }
 
+onepanel_services_active() {
+  onepanel_v2_services_active && return 0
+
+  # Keep recognizing installations made by the legacy v1 installer.
+  systemctl is-active --quiet 1panel.service 2>/dev/null
+}
+
+onepanel_v2_services_active() {
+  if systemctl is-active --quiet 1panel-core.service 2>/dev/null &&
+    systemctl is-active --quiet 1panel-agent.service 2>/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
+append_1panel_failure_details() {
+  local install_log="$1"
+  local panel_password="$2"
+  local line
+  local -a log_tail=()
+
+  [[ -r "$install_log" ]] || return 0
+  mapfile -t log_tail < <(tail -n 160 "$install_log")
+  log "---- Last ${#log_tail[@]} lines of $install_log (password redacted) ----"
+  for line in "${log_tail[@]}"; do
+    if [[ -n "$panel_password" ]]; then
+      printf '%s\n' "${line//"$panel_password"/[REDACTED]}" >>"$LOG_FILE"
+    else
+      printf '%s\n' "$line" >>"$LOG_FILE"
+    fi
+  done
+  log "---- End of 1Panel installer log ----"
+}
+
+write_1panel_result() {
+  local result_file="$1"
+  local user_info="$2"
+  local panel_password="$3"
+
+  [[ "$result_file" == /tmp/1panel-result.* ]] || return 1
+  [[ -f "$result_file" && ! -L "$result_file" && -O "$result_file" ]] || return 1
+  [[ "$(stat -c '%a:%h' "$result_file")" == "600:1" ]] || return 1
+  {
+    printf '1Panel has been successfully installed.\n\n'
+    printf '%s\n\n' "$user_info"
+    printf 'Generated panel password: %s\n\n' "$panel_password"
+    printf 'Save this password now and keep it secure.\n'
+    printf 'Run "1pctl user-info" later to view the panel entry information again.\n'
+  } >"$result_file"
+}
+
+prepare_1panel_install_log() {
+  local install_log="/tmp/1panel_install.log"
+
+  rm -f -- "$install_log" || return 1
+  (umask 077; set -o noclobber; : >"$install_log") 2>/dev/null || return 1
+  chmod 600 "$install_log" || return 1
+  printf '%s\n' "$install_log"
+}
+
 install_1panel() {
   require_root || return 1
-  install_packages curl || return 1
+  install_packages curl ca-certificates tar gzip || return 1
 
-  log "install_1panel: running quick_start.sh"
-  local log_output="/tmp/1panel_install.log"
-  run_bash "curl -sSL https://resource.fit2cloud.com/1panel/package/quick_start.sh | bash" >"$log_output" 2>&1
-  local script_rc=$?
+  local install_log
+  local work_dir installer latest_file checksums_file package_file package_dir install_script
+  local version architecture expected_hash actual_hash docker_choice panel_password user_info
+  local result_file="${ONEPANEL_RESULT_FILE:-}"
+  local xtrace_enabled=0
 
-  cat "$log_output" >>"$LOG_FILE"
+  work_dir="$(mktemp -d /tmp/1panel-install.XXXXXX)" || {
+    log "ERROR: failed to create a private 1Panel working directory"
+    return 1
+  }
+  chmod 700 "$work_dir"
+  installer="$work_dir/quick_start.sh"
+  latest_file="$work_dir/latest"
+  checksums_file="$work_dir/checksums.txt"
 
-  if [[ "$script_rc" -ne 0 ]]; then
-    log "ERROR: 1panel installation failed"
+  if ! install_log="$(prepare_1panel_install_log)"; then
+    log "ERROR: failed to create secure 1Panel installer log: /tmp/1panel_install.log"
+    rm -rf -- "$work_dir"
     return 1
   fi
 
-  local panel_url panel_user panel_pass
-  panel_url=$(grep -oP 'http://[a-zA-Z0-9.\-]+:\d+/[a-zA-Z0-9]+' "$log_output" | head -n 1)
-  panel_user=$(grep -oP '(?<=username: ).*' "$log_output" | head -n 1)
-  panel_pass=$(grep -oP '(?<=password: ).*' "$log_output" | head -n 1)
+  log "install_1panel: downloading international v2 installer metadata"
+  printf 'Downloading 1Panel international installer metadata...\n'
+  if ! curl -fsSL --retry 3 --connect-timeout 15 \
+    https://resource.1panel.pro/v2/quick_start.sh -o "$installer" 2>>"$install_log"; then
+    log "ERROR: failed to download the 1Panel international quick_start.sh"
+    append_1panel_failure_details "$install_log" ""
+    printf 'ERROR: 1Panel installer download failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+  chmod 700 "$installer"
+  if ! grep -Fq 'PANEL_EDITION="intl"' "$installer" ||
+    ! grep -Fq 'https://resource.1panel.pro/v2/' "$installer"; then
+    log "ERROR: downloaded 1Panel quick_start.sh has an unexpected format"
+    printf 'ERROR: 1Panel installer validation failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
 
-  log "install_1panel done: url=$panel_url user=$panel_user"
+  if ! curl -fsSL --retry 3 --connect-timeout 15 \
+    https://resource.1panel.pro/v2/stable/latest -o "$latest_file" 2>>"$install_log"; then
+    log "ERROR: failed to resolve the latest stable 1Panel version"
+    append_1panel_failure_details "$install_log" ""
+    printf 'ERROR: 1Panel version lookup failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+  version="$(tr -d '[:space:]' <"$latest_file")"
+  if [[ ! "$version" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    log "ERROR: invalid 1Panel version returned by the release endpoint"
+    printf 'ERROR: 1Panel version validation failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
 
-  if [[ "${LIVE_OUTPUT:-0}" -eq 0 && -n "$panel_url" ]]; then
+  case "$(uname -m)" in
+  x86_64) architecture="amd64" ;;
+  aarch64 | arm64) architecture="arm64" ;;
+  armv7l) architecture="armv7" ;;
+  ppc64le | riscv64 | s390x) architecture="$(uname -m)" ;;
+  *)
+    log "ERROR: unsupported architecture for 1Panel: $(uname -m)"
+    printf 'ERROR: this architecture is not supported by 1Panel.\n' >&2
+    rm -rf -- "$work_dir"
+    return 1
+    ;;
+  esac
+
+  package_file="1panel-${version}-linux-${architecture}.tar.gz"
+  package_dir="$work_dir/1panel-${version}-linux-${architecture}"
+  install_script="$package_dir/install.sh"
+  printf 'Downloading and verifying 1Panel %s for %s...\n' "$version" "$architecture"
+  if ! curl -fsSL --retry 3 --connect-timeout 15 \
+    "https://resource.1panel.pro/v2/stable/${version}/release/checksums.txt" \
+    -o "$checksums_file" 2>>"$install_log"; then
+    log "ERROR: failed to download 1Panel checksums for $version"
+    append_1panel_failure_details "$install_log" ""
+    printf 'ERROR: 1Panel checksum download failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+  expected_hash="$(awk -v file="$package_file" '$2 == file || $2 == "*" file { print $1; exit }' "$checksums_file")"
+  if [[ ! "$expected_hash" =~ ^[a-fA-F0-9]{64}$ ]]; then
+    log "ERROR: no valid SHA-256 checksum found for $package_file"
+    printf 'ERROR: 1Panel checksum validation failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+
+  if ! curl -fsSL --retry 3 --connect-timeout 15 \
+    "https://resource.1panel.pro/v2/stable/${version}/release/${package_file}" \
+    -o "$work_dir/$package_file" 2>>"$install_log"; then
+    log "ERROR: failed to download 1Panel package $package_file"
+    append_1panel_failure_details "$install_log" ""
+    printf 'ERROR: 1Panel package download failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+  actual_hash="$(sha256sum "$work_dir/$package_file" | awk '{print $1}')"
+  if [[ "$actual_hash" != "$expected_hash" ]]; then
+    log "ERROR: SHA-256 mismatch for $package_file"
+    printf 'ERROR: 1Panel package checksum mismatch. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+  if ! tar -xzf "$work_dir/$package_file" -C "$work_dir" >>"$install_log" 2>&1 ||
+    [[ ! -f "$install_script" ]]; then
+    log "ERROR: failed to extract the 1Panel installer package"
+    printf 'ERROR: 1Panel package extraction failed. See %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    return 1
+  fi
+  printf 'intl\n' >"$package_dir/.selected_edition"
+
+  docker_choice="n"
+  command_exists docker || docker_choice="y"
+
+  # The interactive installer reads its password from /dev/tty, but TUI tasks
+  # have no interactive stdin. Use the official non-interactive environment;
+  # this sensitive call must bypass wrappers that log complete commands.
+  case "$-" in
+  *x*)
+    xtrace_enabled=1
+    set +x
+    ;;
+  esac
+  panel_password="$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
+
+  log "install_1panel: running official install.sh in non-interactive mode"
+  printf 'Installing 1Panel in non-interactive mode; detailed output: %s\n' "$install_log"
+  if ! (
+    cd "$package_dir" || exit 1
+    PANEL_NON_INTERACTIVE=true \
+      PANEL_LANG=en \
+      PANEL_PASSWORD="$panel_password" \
+      PANEL_INSTALL_DOCKER="$docker_choice" \
+      PANEL_DOCKER_MODE=auto \
+      PANEL_CONFIGURE_ACCELERATOR=n \
+      PANEL_REPLACE_DAEMON_JSON=n \
+      bash ./install.sh --non-interactive
+  ) >>"$install_log" 2>&1; then
+    log "ERROR: 1Panel installer exited with a non-zero status"
+    append_1panel_failure_details "$install_log" "$panel_password"
+    printf 'ERROR: 1Panel installation failed. See protected log: %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    unset panel_password
+    [[ "$xtrace_enabled" -eq 0 ]] || set -x
+    return 1
+  fi
+
+  printf 'Verifying 1Panel services...\n'
+  if ! onepanel_v2_services_active; then
+    {
+      printf '\n1Panel service diagnostics:\n'
+      systemctl status 1panel-core.service 1panel-agent.service --no-pager || true
+      journalctl -u 1panel-core.service -u 1panel-agent.service -n 100 --no-pager || true
+    } >>"$install_log" 2>&1
+    log "ERROR: 1Panel services are not active after installation"
+    append_1panel_failure_details "$install_log" "$panel_password"
+    printf 'ERROR: 1Panel services failed to start. See protected log: %s\n' "$install_log" >&2
+    rm -rf -- "$work_dir"
+    unset panel_password
+    [[ "$xtrace_enabled" -eq 0 ]] || set -x
+    return 1
+  fi
+
+  if command_exists 1pctl && user_info="$(1pctl user-info 2>&1)"; then
+    :
+  else
+    user_info='Panel entry information is unavailable. Run "1pctl user-info" manually.'
+  fi
+
+  if [[ -z "$result_file" ]]; then
+    if ! result_file="$(mktemp /tmp/1panel-result.XXXXXX)"; then
+      log "ERROR: could not create the protected 1Panel result message"
+      printf 'ERROR: 1Panel is running, but credentials could not be displayed. Run 1pctl user-info.\n' >&2
+      rm -rf -- "$work_dir"
+      unset panel_password
+      [[ "$xtrace_enabled" -eq 0 ]] || set -x
+      return 1
+    fi
+    chmod 600 "$result_file"
+    if ! write_1panel_result "$result_file" "$user_info" "$panel_password"; then
+      log "ERROR: could not write the protected 1Panel result message"
+      rm -f -- "$result_file"
+      rm -rf -- "$work_dir"
+      unset panel_password
+      [[ "$xtrace_enabled" -eq 0 ]] || set -x
+      return 1
+    fi
     dialog_cmd \
       --backtitle "$UI_TITLE" \
       --title "1Panel Installation Successful" \
-      --ok-label "OK" \
-      --msgbox "1Panel has been successfully installed.\n\nPanel URL: ${panel_url}\nUsername: ${panel_user}\nPassword: ${panel_pass}\n\nPlease save these credentials securely!" 12 70
+      --exit-label "I have saved the password" \
+      --textbox "$result_file" 20 76 || true
+    rm -f -- "$result_file"
+  elif ! write_1panel_result "$result_file" "$user_info" "$panel_password"; then
+    log "ERROR: could not create the protected 1Panel result message"
+    printf 'ERROR: 1Panel is running, but credentials could not be displayed. Run 1pctl user-info.\n' >&2
+    rm -rf -- "$work_dir"
+    unset panel_password
+    [[ "$xtrace_enabled" -eq 0 ]] || set -x
+    return 1
   fi
+
+  rm -rf -- "$work_dir"
+  unset panel_password
+  [[ "$xtrace_enabled" -eq 0 ]] || set -x
+  log "install_1panel done: international v2 services are active"
 }
 
 dd_debian12() {
