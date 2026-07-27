@@ -855,7 +855,7 @@ menu_tool_installation() {
   d_fastfetch=$(printf "%-25s" "System information tool")
   d_lsd=$(printf "%-25s" "Modern ls replacement")
   d_lazygit=$(printf "%-25s" "Terminal git interface")
-  d_mihomo=$(printf "%-25s" "Universal proxy platform (Mihomo)")
+  d_mihomo=$(printf "%-25s" "Universal Proxy")
   d_ncdu=$(printf "%-25s" "Disk usage analyzer")
   d_neovim=$(printf "%-25s" "Text editor (LazyVim)")
   d_nexttrace=$(printf "%-25s" "Visual route tracker")
