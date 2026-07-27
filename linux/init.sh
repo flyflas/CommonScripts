@@ -628,6 +628,7 @@ map_selection_token() {
   Fastfetch | install_fastfetch) echo "install_fastfetch" ;;
   Lsd | install_lsd) echo "install_lsd" ;;
   Lazygit | install_lazygit) echo "install_lazygit" ;;
+  Mihomo | install_mihomo) echo "install_mihomo" ;;
   Ncdu | install_ncdu) echo "install_ncdu" ;;
   Neovim | install_neovim) echo "install_neovim" ;;
   NextTrace | install_nexttrace) echo "install_nexttrace" ;;
@@ -838,6 +839,7 @@ menu_tool_installation() {
   local d_fastfetch
   local d_lsd
   local d_lazygit
+  local d_mihomo
   local d_ncdu
   local d_neovim
   local d_nexttrace
@@ -853,6 +855,7 @@ menu_tool_installation() {
   d_fastfetch=$(printf "%-25s" "System information tool")
   d_lsd=$(printf "%-25s" "Modern ls replacement")
   d_lazygit=$(printf "%-25s" "Terminal git interface")
+  d_mihomo=$(printf "%-25s" "Universal proxy platform (Mihomo)")
   d_ncdu=$(printf "%-25s" "Disk usage analyzer")
   d_neovim=$(printf "%-25s" "Text editor (LazyVim)")
   d_nexttrace=$(printf "%-25s" "Visual route tracker")
@@ -869,6 +872,7 @@ menu_tool_installation() {
   if command_exists fastfetch; then d_fastfetch+=" [OK]"; else d_fastfetch+="     "; fi
   if command_exists lsd; then d_lsd+=" [OK]"; else d_lsd+="     "; fi
   if command_exists lazygit; then d_lazygit+=" [OK]"; else d_lazygit+="     "; fi
+  if command_exists mihomo; then d_mihomo+=" [OK]"; else d_mihomo+="     "; fi
   if command_exists ncdu; then d_ncdu+=" [OK]"; else d_ncdu+="     "; fi
   if command_exists nvim; then d_neovim+=" [OK]"; else d_neovim+="     "; fi
   if command_exists nexttrace; then d_nexttrace+=" [OK]"; else d_nexttrace+="     "; fi
@@ -887,6 +891,7 @@ menu_tool_installation() {
     Fastfetch "$d_fastfetch" OFF \
     Lsd "$d_lsd" OFF \
     Lazygit "$d_lazygit" OFF \
+    Mihomo "$d_mihomo" OFF \
     Ncdu "$d_ncdu" OFF \
     Neovim "$d_neovim" OFF \
     NextTrace "$d_nexttrace" OFF \
@@ -1145,6 +1150,7 @@ task_title() {
   install_fastfetch*) echo "Install fastfetch" ;;
   install_lsd*) echo "Install lsd" ;;
   install_lazygit*) echo "Install lazygit" ;;
+  install_mihomo*) echo "Install Mihomo" ;;
   install_ncdu*) echo "Install ncdu" ;;
   install_neovim*) echo "Install Neovim" ;;
   install_nexttrace*) echo "Install NextTrace" ;;
@@ -1605,6 +1611,137 @@ install_lazygit() {
     command_exists lazygit
     run_cmd /usr/local/bin/lazygit --version
     log "install_lazygit done"
+  )
+}
+
+mihomo_cpu_has_flag() {
+  local flags="$1"
+  local flag="$2"
+
+  [[ " $flags " == *" $flag "* ]]
+}
+
+install_mihomo() {
+  require_root || return 1
+  install_packages curl ca-certificates gzip || return 1
+
+  local arch cpu_flags cpu_level
+
+  arch="$(uname -m)"
+  if [[ "$arch" != "x86_64" ]]; then
+    log "ERROR: unsupported architecture for mihomo: $arch (Debian x86_64 only)"
+    printf 'ERROR: Mihomo installation supports Debian x86_64 only; detected %s.\n' "$arch" >&2
+    return 1
+  fi
+
+  cpu_flags="$(awk -F: '$1 ~ /^[[:space:]]*flags[[:space:]]*$/ { sub(/^[[:space:]]*/, "", $2); print $2; exit }' /proc/cpuinfo)"
+  cpu_level="v1"
+  if mihomo_cpu_has_flag "$cpu_flags" cx16 &&
+    mihomo_cpu_has_flag "$cpu_flags" lahf_lm &&
+    mihomo_cpu_has_flag "$cpu_flags" popcnt &&
+    (mihomo_cpu_has_flag "$cpu_flags" sse3 || mihomo_cpu_has_flag "$cpu_flags" pni) &&
+    mihomo_cpu_has_flag "$cpu_flags" ssse3 &&
+    mihomo_cpu_has_flag "$cpu_flags" sse4_1 &&
+    mihomo_cpu_has_flag "$cpu_flags" sse4_2; then
+    cpu_level="v2"
+    if mihomo_cpu_has_flag "$cpu_flags" avx &&
+      mihomo_cpu_has_flag "$cpu_flags" avx2 &&
+      mihomo_cpu_has_flag "$cpu_flags" bmi1 &&
+      mihomo_cpu_has_flag "$cpu_flags" bmi2 &&
+      mihomo_cpu_has_flag "$cpu_flags" f16c &&
+      mihomo_cpu_has_flag "$cpu_flags" fma &&
+      mihomo_cpu_has_flag "$cpu_flags" movbe &&
+      mihomo_cpu_has_flag "$cpu_flags" xsave &&
+      mihomo_cpu_has_flag "$cpu_flags" abm; then
+      cpu_level="v3"
+    fi
+  fi
+
+  (
+    set -Eeuo pipefail
+
+    local api_url release_json release_tag asset_name asset_url tmp_gz tmp_binary tmp_unit
+    local -a asset_urls=()
+
+    api_url="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+    release_json=""
+    tmp_gz=""
+    tmp_binary=""
+    tmp_unit=""
+    trap 'rm -f "$release_json" "$tmp_gz" "$tmp_binary" "$tmp_unit" >/dev/null 2>&1 || true' EXIT
+
+    release_json="$(mktemp "/tmp/mihomo-release-${cpu_level}.XXXXXX")"
+    tmp_gz="$(mktemp "/tmp/mihomo-${cpu_level}.XXXXXX")"
+    tmp_binary="$(mktemp "/tmp/mihomo-binary-${cpu_level}.XXXXXX")"
+    tmp_unit="$(mktemp "/tmp/mihomo.service.XXXXXX")"
+
+    run_cmd curl -fL --retry 3 --connect-timeout 10 --max-time 120 "$api_url" -o "$release_json"
+    release_tag="$(awk -F'"' '/^[[:space:]]*"tag_name"[[:space:]]*:/ { print $4; exit }' "$release_json")"
+    if [[ ! "$release_tag" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+      log "ERROR: invalid Mihomo release tag from latest release metadata"
+      exit 1
+    fi
+
+    asset_name="mihomo-linux-amd64-${cpu_level}-${release_tag}.gz"
+    mapfile -t asset_urls < <(sed -nE 's/^[[:space:]]*"browser_download_url"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$release_json")
+    asset_url=""
+    for candidate_url in "${asset_urls[@]}"; do
+      if [[ "${candidate_url##*/}" == "$asset_name" ]]; then
+        asset_url="$candidate_url"
+        break
+      fi
+    done
+
+    if [[ -z "$asset_url" ]]; then
+      log "ERROR: unable to find Mihomo asset $asset_name in latest release"
+      exit 1
+    fi
+
+    log "install_mihomo: downloading $asset_name"
+    run_cmd curl -fL --retry 3 --connect-timeout 10 --max-time 120 "$asset_url" -o "$tmp_gz"
+    run_bash "gzip -dc $(shell_quote "$tmp_gz") > $(shell_quote "$tmp_binary")"
+
+    if [[ ! -s "$tmp_binary" ]]; then
+      log "ERROR: extracted Mihomo binary is empty"
+      exit 1
+    fi
+    run_cmd chmod 0755 "$tmp_binary"
+    run_cmd "$tmp_binary" -v
+
+    run_cmd mkdir -p /usr/local/bin /etc/mihomo
+    run_cmd install -m 0755 "$tmp_binary" /usr/local/bin/mihomo
+    command_exists mihomo || {
+      log "ERROR: mihomo command was not found after installation"
+      exit 1
+    }
+    run_cmd /usr/local/bin/mihomo -v
+
+    if ! {
+      printf '%s\n' '[Unit]'
+      printf '%s\n' 'Description=mihomo Daemon, Another Clash Kernel.'
+      printf '%s\n' 'After=network.target NetworkManager.service systemd-networkd.service iwd.service'
+      printf '\n'
+      printf '%s\n' '[Service]'
+      printf '%s\n' 'Type=simple'
+      printf '%s\n' 'LimitNPROC=500'
+      printf '%s\n' 'LimitNOFILE=1000000'
+      printf '%s\n' 'CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE'
+      printf '%s\n' 'AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE'
+      printf '%s\n' 'Restart=always'
+      printf '%s\n' 'ExecStartPre=/usr/bin/sleep 1s'
+      printf '%s\n' 'ExecStart=/usr/local/bin/mihomo -d /etc/mihomo'
+      printf '%s\n' 'ExecReload=/bin/kill -HUP $MAINPID'
+      printf '\n'
+      printf '%s\n' '[Install]'
+      printf '%s\n' 'WantedBy=multi-user.target'
+    } >"$tmp_unit"; then
+      log "ERROR: failed to create mihomo.service unit file"
+      exit 1
+    fi
+
+    run_cmd install -m 0644 "$tmp_unit" /etc/systemd/system/mihomo.service
+    run_cmd systemctl daemon-reload
+    log "install_mihomo done: installed $asset_name for x86-64 $cpu_level"
   )
 }
 
