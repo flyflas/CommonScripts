@@ -1723,6 +1723,7 @@ install_mihomo() {
       printf '\n'
       printf '%s\n' '[Service]'
       printf '%s\n' 'Type=simple'
+      printf '%s\n' 'Environment="SAFE_PATHS=/opt/ssl/499990"'
       printf '%s\n' 'LimitNPROC=500'
       printf '%s\n' 'LimitNOFILE=1000000'
       printf '%s\n' 'CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE'
